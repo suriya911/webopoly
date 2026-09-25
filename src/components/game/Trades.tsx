@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { ArrowLeftRight, Check, Plus, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { GROUPS, TILES } from '@shared/board.ts'
-import type { GameState, TradeOffer } from '@shared/types.ts'
-import { holding, propertiesOf } from '@shared/rules.ts'
+import { GROUPS, LEVEL_LABELS, TILES } from '@shared/board.ts'
+import type { GameState, LeaseOffer, TradeOffer } from '@shared/types.ts'
+import { LEASE_ROUNDS, holding, leaseAmount, propertiesOf } from '@shared/rules.ts'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -24,7 +24,7 @@ function PropList({ state, ids, selected, onToggle }: { state: GameState; ids: n
             <Checkbox checked={selected.includes(i)} onCheckedChange={() => onToggle(i)} />
             <span className="size-2.5 rounded-sm" style={{ background: GROUPS[TILES[i].card!.group].color }} />
             <span className="flex-1 truncate">{TILES[i].name}</span>
-            <span className="text-[10px] text-muted-foreground">{h.leased ? 'leased' : h.level ? `L${h.level}` : ''}</span>
+            <span className="text-[10px] text-muted-foreground">{h.level ? `L${h.level}` : ''}</span>
           </label>
         )
       })}
@@ -86,13 +86,13 @@ function NewTrade({ state, me }: { state: GameState; me: string }) {
         <div className="grid gap-4 sm:grid-cols-2">
           <div className="space-y-2 rounded-lg border p-3">
             <div className="text-sm font-semibold">You give</div>
-            <PropList state={state} ids={propertiesOf(state, me)} selected={give} onToggle={toggle(give, setGive)} />
+            <PropList state={state} ids={propertiesOf(state, me).filter((i) => !holding(state, i).lease)} selected={give} onToggle={toggle(give, setGive)} />
             <Label className="text-xs">Coins</Label>
             <Input inputMode="numeric" placeholder="0" value={giveCash} onChange={(e) => setGiveCash(e.target.value.replace(/\D/g, ''))} />
           </div>
           <div className="space-y-2 rounded-lg border p-3">
             <div className="text-sm font-semibold">You get from {target?.name ?? '…'}</div>
-            <PropList state={state} ids={target ? propertiesOf(state, target.id) : []} selected={get} onToggle={toggle(get, setGet)} />
+            <PropList state={state} ids={target ? propertiesOf(state, target.id).filter((i) => !holding(state, i).lease) : []} selected={get} onToggle={toggle(get, setGet)} />
             <Label className="text-xs">Coins</Label>
             <Input inputMode="numeric" placeholder="0" value={getCash} onChange={(e) => setGetCash(e.target.value.replace(/\D/g, ''))} />
           </div>
@@ -158,12 +158,47 @@ function OfferRow({ state, me, t }: { state: GameState; me: string; t: TradeOffe
   )
 }
 
+function LeaseOfferRow({ state, me, o }: { state: GameState; me: string; o: LeaseOffer }) {
+  const { run, busy } = useAct()
+  const lessor = state.players.find((p) => p.id === o.lessor)!
+  const lessee = state.players.find((p) => p.id === o.lessee)!
+  const level = holding(state, o.tile).level
+  const mineToAnswer = o.from !== me
+  return (
+    <div className={`space-y-2 rounded-lg border p-2.5 text-sm ${mineToAnswer ? 'border-emerald-500/50 bg-emerald-500/5' : ''}`}>
+      <div className="text-xs text-muted-foreground">Lease offer · {LEASE_ROUNDS} rounds</div>
+      <div>
+        <b>{lessee.name}</b> rents <b style={{ color: GROUPS[TILES[o.tile].card!.group].color }}>{TILES[o.tile].name}</b> ({LEVEL_LABELS[level]}) from <b>{lessor.name}</b> for{' '}
+        <Coins value={leaseAmount(o.tile, level)} className="text-xs" /> per round. The renter collects its rent.
+      </div>
+      {mineToAnswer ? (
+        <div className="flex gap-2">
+          <Button size="sm" disabled={busy} onClick={() => run({ type: 'respondLease', id: o.id, accept: true })}>
+            <Check /> Agree
+          </Button>
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => run({ type: 'respondLease', id: o.id, accept: false })}>
+            <X /> Decline
+          </Button>
+        </div>
+      ) : (
+        <Button size="sm" variant="ghost" disabled={busy} onClick={() => run({ type: 'cancelLease', id: o.id })}>
+          Cancel offer
+        </Button>
+      )}
+    </div>
+  )
+}
+
 export function Trades({ state, me }: { state: GameState; me: string }) {
+  const leases = state.leaseOffers.filter((o) => o.lessor === me || o.lessee === me)
   const mine = state.trades.filter((t) => t.from === me || t.to === me)
   const others = state.trades.filter((t) => t.from !== me && t.to !== me)
   return (
     <div className="space-y-3">
       <NewTrade state={state} me={me} />
+      {leases.map((o) => (
+        <LeaseOfferRow key={o.id} state={state} me={me} o={o} />
+      ))}
       {mine.map((t) => (
         <OfferRow key={t.id} state={state} me={me} t={t} />
       ))}

@@ -1,85 +1,150 @@
 // Headless bot games to smoke-test the rules engine: `npx tsx scripts/simulate.ts [games]`
 import { PROPERTY_INDEXES, TILES } from '../shared/board.ts'
-import { buildBlocker, holding, propertiesOf } from '../shared/rules.ts'
-import type { GameAction } from '../shared/types.ts'
+import { SHOP_ITEMS } from '../shared/cards.ts'
+import { buildBlocker, holding, leasedBy, propertiesOf, rentCollector } from '../shared/rules.ts'
+import type { GameAction, GameState, Player } from '../shared/types.ts'
 import { Game, GameError } from '../server/game.ts'
 
 const games = Number(process.argv[2] ?? 200)
 const pick = <T,>(a: T[]) => a[Math.floor(Math.random() * a.length)]
+const chance = (p: number) => Math.random() < p
 let totalTurns = 0
 let finished = 0
 const errors = new Map<string, number>()
+const seen = new Map<string, number>()
+const count = (k: string) => seen.set(k, (seen.get(k) ?? 0) + 1)
+
+/** Free actions a bot might take before rolling / ending its turn. */
+function freeAction(s: GameState, me: Player): GameAction | null {
+  const mine = propertiesOf(s, me.id)
+  if (me.items.symbiote && chance(0.5)) {
+    const tile = [...mine, ...leasedBy(s, me.id)].find((i) => rentCollector(s, i) === me.id)
+    const target = s.players.find((p) => p.id !== me.id && !p.bankrupt && !p.inJail)
+    if (tile !== undefined && target) return { type: 'useSymbiote', target: target.id, tile }
+  }
+  if (me.items.sinister && chance(0.5)) return { type: 'activateSinister' }
+  if (me.items.startCard && chance(0.3)) return { type: 'useStartCard', ultimate: false }
+  if (me.items.reverse && chance(0.2)) return { type: 'useReverse' }
+  const b = mine.find((i) => !buildBlocker(s, me.id, i))
+  if (b !== undefined && me.cash > 60000 && chance(0.3)) return { type: 'build', tile: b }
+  return null
+}
+
+function decide(s: GameState, me: Player): GameAction {
+  switch (s.phase) {
+    case 'roll':
+      return freeAction(s, me) ?? { type: 'roll' }
+    case 'jail':
+      if (me.items.jailCard) return { type: 'useJailCard' }
+      if (me.cash > 60000 && chance(0.3)) return { type: 'payBail' }
+      return me.jailRolls < 3 ? { type: 'roll' } : { type: 'stayInJail' }
+    case 'buy':
+      return me.cash > TILES[me.pos].card!.price + 5000 ? { type: 'buy' } : { type: 'pass' }
+    case 'fate':
+      return { type: 'rollFate' }
+    case 'choose':
+      return { type: 'choose', tile: pick(s.choice!.tiles) }
+    case 'shop': {
+      const affordable = SHOP_ITEMS.filter((i) => i.price < me.cash - 30000)
+      return affordable.length && chance(0.6) ? { type: 'shopBuy', item: pick(affordable).id } : { type: 'shopLeave' }
+    }
+    case 'spiderverse':
+      return { type: 'spiderverse', power: chance(0.5) ? pick(['teleport', 'reverse', 'jail'] as const) : null }
+    case 'leaseSpot': {
+      if (chance(0.4)) {
+        const free = PROPERTY_INDEXES.filter((i) => !holding(s, i).owner && !holding(s, i).lease)
+        if (free.length) return { type: 'leaseUnowned', tile: pick(free), level: Math.floor(Math.random() * 5) }
+      }
+      if (chance(0.3)) {
+        const other = s.players.find((p) => p.id !== me.id && !p.bankrupt)
+        const tile = propertiesOf(s, me.id).find((i) => !holding(s, i).lease)
+        if (other && tile !== undefined) return { type: 'proposeLease', tile, with: other.id }
+      }
+      return { type: 'leaveLeaseSpot' }
+    }
+    case 'manage': {
+      const f = freeAction(s, me)
+      if (f) return f
+      if (chance(0.05)) {
+        const other = s.players.find((p) => !p.bankrupt && p.id !== me.id)
+        if (other)
+          return {
+            type: 'proposeTrade',
+            offer: { to: other.id, giveProps: propertiesOf(s, me.id).slice(0, 1), getProps: propertiesOf(s, other.id).slice(0, 1), giveCash: 1000, getCash: 0 },
+          }
+      }
+      return { type: 'endTurn' }
+    }
+    case 'debt': {
+      const mine = propertiesOf(s, me.id).filter((i) => !holding(s, i).lease)
+      const built = mine.find((i) => holding(s, i).level > 0)
+      if (me.cash >= s.debt!.amount) return { type: 'payDebt' }
+      if (built !== undefined) return { type: 'sellBuilding', tile: built }
+      if (mine.length) return { type: 'sellProperty', tile: mine[0] }
+      return { type: 'bankrupt' }
+    }
+    default:
+      throw new Error(`no bot move for ${s.phase}`)
+  }
+}
 
 for (let g = 0; g < games; g++) {
   const game = new Game('TEST', () => {})
   const n = 2 + (g % 5)
   for (let i = 0; i < n; i++) game.addPlayer(`Bot${i}`)
   const host = game.state.hostId
-  game.updateSettings(host, { turnSeconds: 0, timeLimitMinutes: 0 })
+  game.updateSettings(host, { turnSeconds: 0, timeLimitMinutes: 0, startingCash: pick([100_000, 150_000, 300_000]) })
   game.start(host)
   let steps = 0
-  while (game.state.status === 'playing' && steps < 20000) {
+  while (game.state.status === 'playing' && steps < 30000) {
     steps++
     const s = game.state
-    const me = s.players.find((p) => p.id === s.current)!
+    let actor: Player
     let action: GameAction
-    switch (s.phase) {
-      case 'roll':
-        if (Math.random() < 0.3) {
-          const b = propertiesOf(s, me.id).find((i) => !buildBlocker(s, me.id, i))
-          if (b !== undefined && me.cash > 40000) {
-            action = { type: 'build', tile: b }
-            break
-          }
-        }
-        action = { type: 'roll' }
-        break
-      case 'jail':
-        action = pick([{ type: 'roll' }, { type: 'payBail' }, ...(me.jailCards ? [{ type: 'useJailCard' } as const] : [])] as GameAction[])
-        break
-      case 'buy':
-        action = me.cash > (TILES[me.pos].card!.price + 5000) ? { type: 'buy' } : { type: 'pass' }
-        break
-      case 'signpost':
-        action = { type: 'signpost', choice: pick(['this', 'that', 'another'] as const) }
-        break
-      case 'portal':
-        action = { type: 'portal', target: Math.random() < 0.5 ? null : pick(PROPERTY_INDEXES) }
-        break
-      case 'manage': {
-        const leased = propertiesOf(s, me.id).find((i) => holding(s, i).leased)
-        if (leased !== undefined && me.cash > 60000 && Math.random() < 0.5) action = { type: 'unlease', tile: leased }
-        else if (Math.random() < 0.05 && s.players.filter((p) => !p.bankrupt).length > 1) {
-          const other = pick(s.players.filter((p) => !p.bankrupt && p.id !== me.id))
-          action = { type: 'proposeTrade', offer: { to: other.id, giveProps: propertiesOf(s, me.id).slice(0, 1), getProps: propertiesOf(s, other.id).slice(0, 1), giveCash: 1000, getCash: 0 } }
-        } else action = { type: 'endTurn' }
-        break
-      }
-      case 'debt': {
-        const l = propertiesOf(s, me.id).find((i) => !holding(s, i).leased)
-        action = me.cash >= s.debt!.amount ? { type: 'payDebt' } : l !== undefined ? { type: 'lease', tile: l } : { type: 'bankrupt' }
-        break
-      }
+    if (s.phase === 'offer') {
+      actor = game.player(s.offerPending[0])
+      action = { type: 'ultimateOffer', buy: chance(0.3) }
+    } else if (s.phase === 'web') {
+      actor = game.player(s.webPrompt!.owner)
+      action = { type: 'web', use: chance(0.7) }
+    } else {
+      actor = s.players.find((p) => p.id === s.current)!
+      action = decide(s, actor)
     }
+    count(s.phase)
     try {
-      game.act(me.id, action)
-      // Let targets answer trades
+      game.act(actor.id, action)
       for (const t of [...game.state.trades]) {
-        try { game.act(t.to, { type: 'respondTrade', id: t.id, accept: Math.random() < 0.5 }) } catch (e) { if (!(e instanceof GameError)) throw e }
+        try {
+          game.act(t.to, { type: 'respondTrade', id: t.id, accept: chance(0.5) })
+        } catch (e) {
+          if (!(e instanceof GameError)) throw e
+        }
+      }
+      for (const o of [...game.state.leaseOffers]) {
+        const responder = o.from === o.lessor ? o.lessee : o.lessor
+        try {
+          game.act(responder, { type: 'respondLease', id: o.id, accept: chance(0.6) })
+        } catch (e) {
+          if (!(e instanceof GameError)) throw e
+        }
       }
     } catch (e) {
       if (!(e instanceof GameError)) throw e
-      errors.set(`${s.phase}:${action.type}:${e.message}`, (errors.get(`${s.phase}:${action.type}:${e.message}`) ?? 0) + 1)
-      if (action.type === 'roll' || action.type === 'endTurn' || action.type === 'payDebt') throw new Error(`Stuck: ${e.message} in ${s.phase}`)
+      const key = `${s.phase}:${action.type}:${e.message}`
+      errors.set(key, (errors.get(key) ?? 0) + 1)
+      if (['roll', 'endTurn', 'payDebt', 'rollFate', 'shopLeave', 'leaveLeaseSpot', 'stayInJail'].includes(action.type))
+        throw new Error(`Stuck: ${e.message} in ${s.phase}`)
     }
-    // Invariants
     for (const p of game.state.players) {
       if (!p.bankrupt && p.cash < 0) throw new Error(`Negative cash ${p.name} ${p.cash} phase ${game.state.phase}`)
       if (p.pos < 0 || p.pos >= 40) throw new Error('bad pos')
+      if (p.glued && p.inJail) throw new Error('glued in jail')
     }
     for (const [i, h] of Object.entries(game.state.holdings)) {
-      const owner = game.state.players.find((p) => p.id === h.owner)
-      if (!owner || owner.bankrupt) throw new Error(`Orphan holding ${i}`)
+      if (h.owner && !game.state.players.find((p) => p.id === h.owner && !p.bankrupt)) throw new Error(`Orphan holding ${i}`)
+      if (!h.owner && !h.lease) throw new Error(`Empty holding ${i}`)
+      if (h.lease && !game.state.players.find((p) => p.id === h.lease!.lessee && !p.bankrupt)) throw new Error(`Orphan lease ${i}`)
       if (h.level < 0 || h.level > 4) throw new Error('bad level')
     }
   }
@@ -88,4 +153,5 @@ for (let g = 0; g < games; g++) {
   game.dispose()
 }
 console.log(`games=${games} finished=${finished} avgTurns=${Math.round(totalTurns / games)}`)
+console.log('phases seen:', Object.fromEntries(seen))
 console.log('rejected actions:', Object.fromEntries(errors))

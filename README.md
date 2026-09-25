@@ -36,23 +36,22 @@ npx tsx scripts/simulate.ts 300   # bots play 300 games to smoke-test the rules 
 
 ## Rules
 
-| | |
-|---|---|
-| Start | 100,000 WebCoins each (host slider: 50,000–300,000). Passing START pays 10,000, and landing exactly on it pays 5,000 more. |
-| Dice | 2 dice. Doubles roll again. Three doubles in a row sends you to The Raft. |
-| Properties | 30 cards in 6 groups of 5 (A Amazing Spiders, S Symbiotes, 6 Sinister Six, G Sinister Syndicate, V Villains Inc., W Spider-Verse). You can buy one when you land on it. |
-| Rent | Land rent comes from the card and is **doubled if the owner holds all 5** of the group. 1H/2H/3H are houses, and H is the Web HQ. |
-| Build | As soon as you own a property, pay the card's BUILD cost per level (up to 3 houses, then a Web HQ). |
-| Lease (L column) | The bank pays the lease value for the property's current level. While leased it earns no rent and can't be built on. Buying it back costs +10%. |
-| **?** Spider-Sense | Draw a card: Bugle photo money, J.J.J. lawsuit, Rhino (jail), pardon card, Aunt May's wheatcakes, and more. |
-| **This Way / That Way / Another Way** | Pick one: 3 spaces forward, 3 spaces back, or web-swing to the other signpost for +2,000. |
-| **Tax** | 10% of your net worth (minimum 2,000, maximum 15,000). |
-| **Jail (The Raft)** | You're jailed by landing on it, drawing a Rhino card, or rolling 3 doubles. To get out, roll doubles (3 tries), pay 5,000 bail, or use a pardon. You still collect rent while jailed. *(New jail rules coming.)* |
-| Spider-Sense Stash (corner) | Taxes, fines and bail pile up here, and whoever lands on it takes the pot. |
-| Lease Office (corner) | A 2,000 grant, plus buy-backs without interest for the rest of that turn. |
-| Multiverse Portal | Pay 2,000 to jump to any property. |
-| Debt | Lease properties to raise cash. If that still isn't enough, you're bankrupt and your assets go to the creditor. |
-| Win | The last player standing wins. With a time limit set, the richest player wins when it runs out. |
+Everything below is also in the game: open **Rules** at the top, or click any special spot on the board to see its rules.
+
+- **Direction:** anticlockwise. From START you go down the left side first. Roll 2 dice; a doublet rolls again, and 3 doublets in a row sends you to jail.
+- **START:** 5,000 every time you cross or land on it. **Ultimate START** (100,000; offered to every player before the first roll, and sold in the Token Shop) raises that to 10,000.
+- **Properties:** you can build on any card you own (3 houses, then a hotel) for the card's BUILD cost. **Set bonus:** hold 3+ cards of one color set and each earns +2,000 rent.
+- **UNO (?):** roll 2 dice. The results are: tax-for-card free, Token Shop ban, go to your place, no START reward once, collect 5,000 from each player, pay 1.5x rent for 2 turns, free Jail card, pay double rent for 2 turns, +20,000, destroy one of your buildings, +100,000.
+- **CHANCE (This Way / That Way / Another Way):** roll 2 dice. The results are: go to Tax, go to the Token Shop, surrender a card, go to START, give 5,000 to each player, pay half rent for 2 turns, go to jail, set bonus +2,000 for 2 rounds, lose 20,000, free house-tax card, lose 100,000.
+- **Tax:** 1,000 per card, 500 per house, 1,000 per hotel.
+- **Token Shop (spider emblem corner):** Start card 3,000 · Ultimate Start card 5,000 (Ultimate START owners only) · Jail card 17,000 · Ultimate START 100,000 · Tax for card 8,000 · Tax for house & hotel 11,000 · Random roll 12,000 (1 die) · Sinister 6 card 8,000 (needs a "6" card) · Web card 17,000 (needs a "W" card) · Symbiote card 12,000 (needs an "S" card).
+  - **Sinister 6:** +2,000 rent on each of your "6" cards for 2 rounds.
+  - **Web:** when an opponent lands on your place, glue them there for 3 more turns and collect rent each turn.
+  - **Symbiote:** pull an opponent onto your place and they pay the rent. Cards can be combined.
+- **Jail:** up to 5 turns, with no income while inside. To get out, pay 20,000, roll a doublet (3 chances), or use a Jail card. After release you hold a **Criminal card**: no buying or building on the first spot you land on.
+- **Spider-Verse:** pay 15,000 for one power: Teleport (any spot now), Come reverse (a Reverse card that returns you to this spot later), or Jail no cost (a Jail card).
+- **Lease:** at the Lease spot, lease a card for 3 rounds. From the unowned pile you pick the level (base, 1-3 houses or hotel) and pay that level's lease value every round. Between players, both must agree and the card keeps its current level. The renter collects the rent but gets no set bonus. Afterwards the card goes back to its owner or to the unowned pile.
+- **Debt:** sell buildings (half their cost) or cards (half their value). If that still isn't enough, you're bankrupt.
 
 ## Hosting
 

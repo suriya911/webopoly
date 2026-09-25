@@ -1,6 +1,6 @@
 import { GROUPS, LEVEL_LABELS, TILES } from '@shared/board.ts'
 import type { GameState } from '@shared/types.ts'
-import { buildCost, holding, ownsFullGroup } from '@shared/rules.ts'
+import { SET_BONUS, buildCost, effectiveLevel, hasSetBonus, holding } from '@shared/rules.ts'
 import { cn } from '@/lib/utils'
 import { CoinIcon } from './bits'
 
@@ -11,8 +11,9 @@ export function PropertyCard({ tile, state, compact }: { tile: number; state: Ga
   if (!card) return null
   const g = GROUPS[card.group]
   const h = holding(state, tile)
-  const fullSet = h.owner ? ownsFullGroup(state, h.owner, card.group) : false
-  const rows = LEVEL_LABELS.map((label, i) => ({ label: i === 0 ? 'Rent' : label, rent: card.rent[i], lease: card.lease[i] }))
+  const setBonus = hasSetBonus(state, tile)
+  const active = h.owner || h.lease ? effectiveLevel(state, tile) : -1
+  const rows = LEVEL_LABELS.map((label, i) => ({ label, rent: card.rent[i], lease: card.lease[i] }))
 
   return (
     <div
@@ -32,7 +33,7 @@ export function PropertyCard({ tile, state, compact }: { tile: number; state: Ga
       </div>
       {!compact && (
         <div className="relative hidden w-28 shrink-0 sm:block">
-          <img src={`/tiles/t${String(tile).padStart(2, '0')}.webp`} alt="" className="absolute inset-0 size-full object-cover" />
+          <img src={`/tiles/t${String(t.art).padStart(2, '0')}.webp`} alt="" className="absolute inset-0 size-full object-cover" />
           <div className="absolute inset-0 bg-gradient-to-r from-transparent to-black" />
         </div>
       )}
@@ -51,11 +52,11 @@ export function PropertyCard({ tile, state, compact }: { tile: number; state: Ga
             className="grid size-9 place-items-center rounded-md font-comic text-2xl"
             style={{ color: g.color, textShadow: `0 0 10px ${g.glow}` }}
           >
-            {card.group}
+            {g.symbol}
           </div>
         </div>
         <div className="mt-1 text-xs opacity-80">
-          Build <span className="font-mono">{buildCost(state, tile).toLocaleString('en-US')}</span> / level
+          Build <span className="font-mono">{buildCost(tile).toLocaleString('en-US')}</span> per house
         </div>
         <table className="mt-2 w-full text-xs">
           <thead>
@@ -67,14 +68,14 @@ export function PropertyCard({ tile, state, compact }: { tile: number; state: Ga
           </thead>
           <tbody className="font-mono">
             {rows.map((r, i) => {
-              const active = h.owner && h.level === i
+              const isActive = active === i
               return (
-                <tr key={r.label} className={cn('border-t border-white/5', active && 'bg-white/10 font-bold')}>
+                <tr key={r.label} className={cn('border-t border-white/5', isActive && 'bg-white/10 font-bold')}>
                   <td className="py-0.5 font-sans">
                     {r.label}
-                    {i === 0 && fullSet && <span className="ml-1 text-[10px] text-amber-300">x2 full set</span>}
+                    {isActive && setBonus && <span className="ml-1 text-[10px] text-amber-300">+{SET_BONUS.toLocaleString('en-US')} set</span>}
                   </td>
-                  <td className="text-right" style={{ color: active ? g.color : undefined }}>
+                  <td className="text-right" style={{ color: isActive ? g.color : undefined }}>
                     {r.rent.toLocaleString('en-US')}
                   </td>
                   <td className="text-right opacity-70">{r.lease.toLocaleString('en-US')}</td>

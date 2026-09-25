@@ -1,20 +1,67 @@
 export interface Settings {
   startingCash: number
+  /** START reward for every lap (crossing or landing). Ultimate START owners get double. */
   salary: number
   /** Seconds per decision; 0 disables the turn timer. */
   turnSeconds: number
   /** Minutes before the game ends and the richest player wins; 0 = play to the last one standing. */
   timeLimitMinutes: number
-  /** Taxes and fines go into a pot collected on the Spider-Sense Stash corner. */
-  stashPot: boolean
 }
 
 export const DEFAULT_SETTINGS: Settings = {
   startingCash: 100_000,
-  salary: 10_000,
+  salary: 5_000,
   turnSeconds: 90,
   timeLimitMinutes: 0,
-  stashPot: true,
+}
+
+/** Power cards a player holds (counts). */
+export interface Items {
+  startCard: number
+  ultimateStartCard: number
+  jailCard: number
+  taxCardFree: number
+  taxHouseFree: number
+  sinister: number
+  web: number
+  symbiote: number
+  reverse: number
+}
+
+export const EMPTY_ITEMS: Items = {
+  startCard: 0,
+  ultimateStartCard: 0,
+  jailCard: 0,
+  taxCardFree: 0,
+  taxHouseFree: 0,
+  sinister: 0,
+  web: 0,
+  symbiote: 0,
+  reverse: 0,
+}
+
+export interface Effects {
+  /** Multiplier on rent this player pays, for their next `rentTurns` turns. */
+  rentMult: number
+  rentTurns: number
+  /** True until the player's next turn starts; the modifier applies from then on. */
+  rentPending: boolean
+  /** Board tiles of travel left with +2,000 extra set bonus (2 rounds = 80). */
+  setBoostTiles: number
+  /** Board tiles of travel left with the Sinister Six card active. */
+  sinisterTiles: number
+  skipStart: boolean
+  shopBan: boolean
+}
+
+export const NO_EFFECTS: Effects = {
+  rentMult: 1,
+  rentTurns: 0,
+  rentPending: false,
+  setBoostTiles: 0,
+  sinisterTiles: 0,
+  skipStart: false,
+  shopBan: false,
 }
 
 export interface Player {
@@ -24,21 +71,62 @@ export interface Player {
   cash: number
   pos: number
   inJail: boolean
+  /** Turns already spent in jail (released after 5). */
   jailTurns: number
-  jailCards: number
+  /** Doublet attempts used in jail (max 3). */
+  jailRolls: number
+  /** Just released from jail: can't buy or build on the first tile they land on. */
+  criminal: boolean
+  /** Stuck by a Web card: pays that tile's rent each turn instead of moving. */
+  glued: { tile: number; turns: number } | null
+  ultimateStart: boolean
+  items: Items
+  effects: Effects
   bankrupt: boolean
   connected: boolean
   ready: boolean
 }
 
-export interface Holding {
-  owner: string | null
-  /** 0 = land only, 1-3 houses, 4 = Web HQ */
+export interface Lease {
+  lessee: string
+  /** null when leased from the bank's unowned pile */
+  lessor: string | null
   level: number
-  leased: boolean
+  /** Paid every round (40 tiles of the lessee's travel) */
+  amount: number
+  paymentsLeft: number
+  progress: number
 }
 
-export type Phase = 'roll' | 'jail' | 'buy' | 'signpost' | 'portal' | 'manage' | 'debt'
+export interface Holding {
+  owner: string | null
+  /** 0 = base, 1-3 houses, 4 = hotel */
+  level: number
+  lease: Lease | null
+}
+
+export type Phase =
+  | 'offer'
+  | 'roll'
+  | 'jail'
+  | 'buy'
+  | 'fate'
+  | 'choose'
+  | 'shop'
+  | 'spiderverse'
+  | 'leaseSpot'
+  | 'web'
+  | 'manage'
+  | 'debt'
+
+export type ChoiceKind = 'surrender' | 'destroyOwn' | 'breakOther' | 'yourPlace' | 'teleport'
+
+export interface Choice {
+  kind: ChoiceKind
+  tiles: number[]
+  prompt: string
+  optional: boolean
+}
 
 export interface LogEntry {
   id: number
@@ -51,7 +139,8 @@ export interface LogEntry {
 export interface CardEvent {
   seq: number
   playerId: string
-  cardId: string
+  deck: 'chance' | 'uno' | 'random'
+  roll: number
   title: string
   text: string
 }
@@ -79,15 +168,34 @@ export interface TradeOffer {
   getCash: number
 }
 
+export interface LeaseOffer {
+  id: string
+  from: string
+  lessor: string
+  lessee: string
+  tile: number
+}
+
 export interface Debt {
   amount: number
-  /** Creditor player id; null means the bank (or the stash pot when toPot is set). */
+  /** Creditor player id; null means the bank. */
   to: string | null
-  toPot?: boolean
   /** When set, the amount is shared equally between these players. */
   split?: string[]
   reason: string
 }
+
+export type ShopItem =
+  | 'startCard'
+  | 'ultimateStartCard'
+  | 'jailCard'
+  | 'ultimateStart'
+  | 'taxCardFree'
+  | 'taxHouseFree'
+  | 'random'
+  | 'sinister'
+  | 'web'
+  | 'symbiote'
 
 export interface GameState {
   code: string
@@ -98,19 +206,25 @@ export interface GameState {
   turn: number
   current: string | null
   phase: Phase
+  /** Players who still have to answer the Ultimate START offer at game start */
+  offerPending: string[]
   dice: [number, number]
   rollSeq: number
   doubles: number
   canRollAgain: boolean
   holdings: Record<number, Holding>
-  pot: number
   debt: Debt | null
-  freeUnlease: boolean
+  choice: Choice | null
+  fateDeck: 'chance' | 'uno' | null
+  webPrompt: { owner: string; victim: string; tile: number } | null
+  /** Tile where a freshly released prisoner may not buy or build this turn */
+  criminalTile: number | null
   log: LogEntry[]
   lastCard: CardEvent | null
   moves: MoveEvent[]
   money: MoneyEvent[]
   trades: TradeOffer[]
+  leaseOffers: LeaseOffer[]
   deadline: number | null
   startedAt: number | null
   endsAt: number | null
@@ -119,16 +233,31 @@ export interface GameState {
 }
 
 export type GameAction =
+  | { type: 'ultimateOffer'; buy: boolean }
   | { type: 'roll' }
   | { type: 'buy' }
   | { type: 'pass' }
-  | { type: 'signpost'; choice: 'this' | 'that' | 'another' }
-  | { type: 'portal'; target: number | null }
+  | { type: 'rollFate' }
+  | { type: 'choose'; tile: number | null }
   | { type: 'payBail' }
   | { type: 'useJailCard' }
+  | { type: 'stayInJail' }
   | { type: 'build'; tile: number }
-  | { type: 'lease'; tile: number }
-  | { type: 'unlease'; tile: number }
+  | { type: 'sellBuilding'; tile: number }
+  | { type: 'sellProperty'; tile: number }
+  | { type: 'shopBuy'; item: ShopItem }
+  | { type: 'shopLeave' }
+  | { type: 'spiderverse'; power: 'teleport' | 'reverse' | 'jail' | null }
+  | { type: 'leaseUnowned'; tile: number; level: number }
+  | { type: 'proposeLease'; tile: number; with: string }
+  | { type: 'respondLease'; id: string; accept: boolean }
+  | { type: 'cancelLease'; id: string }
+  | { type: 'leaveLeaseSpot' }
+  | { type: 'web'; use: boolean }
+  | { type: 'useStartCard'; ultimate: boolean }
+  | { type: 'useReverse' }
+  | { type: 'activateSinister' }
+  | { type: 'useSymbiote'; target: string; tile: number }
   | { type: 'payDebt' }
   | { type: 'bankrupt' }
   | { type: 'endTurn' }

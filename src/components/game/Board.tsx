@@ -16,42 +16,36 @@ const INNER_EDGE: Record<Exclude<Side, 'corner'>, string> = {
   right: 'left-0 inset-y-0 w-[14%] flex-col',
 }
 
+const TIP: Record<string, string> = {
+  start: 'START · reward every round. Click for rules',
+  uno: 'UNO ? · roll 2 dice for your fate. Click for rules',
+  chance: 'CHANCE · This Way / That Way / Another Way. Click for rules',
+  tax: 'Tax · per card, house and hotel. Click for rules',
+  jail: 'Jail · up to 5 turns. Click for rules',
+  shop: 'Token Shop · buy power cards. Click for rules',
+  spiderverse: 'Spider-Verse · pay 15,000 for a power. Click for rules',
+  lease: 'Lease · rent cards for 3 rounds. Click for rules',
+}
+
 function tileTip(state: GameState, i: number) {
   const t = TILES[i]
+  if (t.kind !== 'property') return TIP[t.kind]
   const h = holding(state, i)
   const owner = state.players.find((p) => p.id === h.owner)
-  switch (t.kind) {
-    case 'property':
-      return (
-        <div className="space-y-0.5">
-          <div className="font-semibold" style={{ color: GROUPS[t.card!.group].color }}>
-            {t.name}
-          </div>
-          <div className="text-xs opacity-80">{GROUPS[t.card!.group].name}</div>
-          <div className="text-xs">
-            {owner
-              ? `${owner.name} · ${h.leased ? 'Leased' : `rent ${rentFor(state, i).toLocaleString('en-US')}`}`
-              : `For sale · ${t.card!.price.toLocaleString('en-US')}`}
-          </div>
-        </div>
-      )
-    case 'chance':
-      return 'Spider-Sense ? · draw a card'
-    case 'signpost':
-      return 'This Way (+3) · That Way (−3) · Another Way (swing across + 2,000)'
-    case 'portal':
-      return 'Multiverse Portal · pay 2,000 to jump to any property'
-    case 'tax':
-      return 'City Tax · 10% of net worth (2,000 – 15,000)'
-    case 'jail':
-      return 'The Raft · landing here locks you up'
-    case 'spidersense':
-      return `Spider-Sense Stash · collect the pot (${state.pot.toLocaleString('en-US')})`
-    case 'lease':
-      return 'Lease Office · 2,000 grant + interest-free buy-backs this turn'
-    case 'start':
-      return `START · collect ${state.settings.salary.toLocaleString('en-US')} each lap`
-  }
+  const lessee = state.players.find((p) => p.id === h.lease?.lessee)
+  return (
+    <div className="space-y-0.5">
+      <div className="font-semibold" style={{ color: GROUPS[t.card!.group].color }}>
+        {t.name}
+      </div>
+      <div className="text-xs opacity-80">{GROUPS[t.card!.group].name}</div>
+      <div className="text-xs">
+        {owner ? `Owner: ${owner.name}` : lessee ? 'Unowned pile' : `For sale · ${t.card!.price.toLocaleString('en-US')}`}
+        {lessee && ` · leased to ${lessee.name} (${h.lease!.paymentsLeft} rounds left)`}
+      </div>
+      {(owner || lessee) && <div className="text-xs">Rent {rentFor(state, i).toLocaleString('en-US')}</div>}
+    </div>
+  )
 }
 
 export function Board({
@@ -71,7 +65,11 @@ export function Board({
   pickable?: number[]
   onPick?: (tile: number) => void
 }) {
-  const selectTile = (i: number) => useStore.getState().set({ selectedTile: i })
+  const openTile = (i: number) => {
+    const t = TILES[i]
+    if (t.kind === 'property') useStore.getState().set({ selectedTile: i })
+    else useStore.getState().set({ ruleTopic: t.kind })
+  }
   const current = state.players.find((p) => p.id === state.current)
   const alive = state.players.filter((p) => !p.bankrupt)
 
@@ -91,6 +89,9 @@ export function Board({
         const r = tileRect(t.index)
         const h = holding(state, t.index)
         const owner = h.owner ? state.players.find((p) => p.id === h.owner) : undefined
+        const lessee = h.lease ? state.players.find((p) => p.id === h.lease!.lessee) : undefined
+        const marker = owner ?? lessee
+        const level = h.lease && !h.owner ? h.lease.level : h.level
         const canPick = pickable?.includes(t.index)
         const here = current && (pos[current.id] ?? current.pos) === t.index && !moving
         return (
@@ -99,7 +100,7 @@ export function Board({
               <button
                 type="button"
                 aria-label={t.name}
-                onClick={() => (canPick ? onPick?.(t.index) : t.kind === 'property' && selectTile(t.index))}
+                onClick={() => (canPick ? onPick?.(t.index) : openTile(t.index))}
                 className={cn(
                   'absolute outline-none transition-[box-shadow,background-color] duration-300 hover:bg-white/10 focus-visible:ring-2 focus-visible:ring-sky-400',
                   canPick && 'tile-pick z-10',
@@ -108,23 +109,31 @@ export function Board({
                 )}
                 style={{ left: `${r.left}%`, top: `${r.top}%`, width: `${r.width}%`, height: `${r.height}%` }}
               >
-                {h.leased && (
-                  <span className="absolute inset-0 grid place-items-center bg-black/60 backdrop-grayscale">
-                    <span className="-rotate-12 rounded border border-white/40 px-1 font-comic text-[clamp(7px,1.1vw,13px)] tracking-widest text-white/85">
+                {lessee && (
+                  <span className="absolute inset-0 grid place-items-center bg-black/35">
+                    <span
+                      className="-rotate-12 rounded border px-1 font-comic text-[clamp(7px,1.1vw,13px)] tracking-widest text-white"
+                      style={{ borderColor: playerColor(lessee.avatar), background: 'rgb(0 0 0 / .65)' }}
+                    >
                       LEASED
                     </span>
                   </span>
                 )}
-                {owner && r.side !== 'corner' && (
+                {marker && r.side !== 'corner' && (
                   <span
                     className={cn('absolute flex items-center justify-center gap-[6%]', INNER_EDGE[r.side])}
-                    style={{ background: playerColor(owner.avatar), boxShadow: `0 0 10px ${playerColor(owner.avatar)}` }}
+                    style={{
+                      background: owner
+                        ? playerColor(owner.avatar)
+                        : `repeating-linear-gradient(45deg, ${playerColor(marker.avatar)} 0 4px, transparent 4px 8px)`,
+                      boxShadow: `0 0 10px ${playerColor(marker.avatar)}`,
+                    }}
                   >
-                    {h.level > 0 && h.level < MAX_LEVEL &&
-                      Array.from({ length: h.level }, (_, k) => (
+                    {level > 0 && level < MAX_LEVEL &&
+                      Array.from({ length: level }, (_, k) => (
                         <span key={k} className="aspect-square h-[60%] max-h-[60%] max-w-[60%] rounded-[2px] bg-white shadow ring-1 ring-black/40" />
                       ))}
-                    {h.level === MAX_LEVEL && (
+                    {level === MAX_LEVEL && (
                       <span className="aspect-square h-[85%] max-h-[85%] max-w-[85%] rounded-full bg-gradient-to-b from-yellow-200 to-amber-500 ring-1 ring-black/50" />
                     )}
                   </span>

@@ -1,9 +1,21 @@
 import { useState } from 'react'
-import { ArrowLeft, ArrowRight, Dices, DoorOpen, Gavel, Hourglass, KeyRound, Shuffle, Sparkles, X } from 'lucide-react'
+import { ArrowRight, Dices, DoorOpen, Gavel, Hourglass, KeyRound, Rewind, ShoppingBag, Sparkles, Undo2, X } from 'lucide-react'
 import { toast } from 'sonner'
-import { TILES } from '@shared/board.ts'
-import type { GameAction, GameState } from '@shared/types.ts'
-import { JAIL_BAIL, PORTAL_FEE, holding, leasePayout, propertiesOf } from '@shared/rules.ts'
+import { GROUPS, LEVEL_LABELS, PROPERTY_INDEXES, TILES } from '@shared/board.ts'
+import { SHOP_ITEMS } from '@shared/cards.ts'
+import type { GameAction, GameState, Player } from '@shared/types.ts'
+import {
+  JAIL_BAIL,
+  JAIL_DOUBLET_TRIES,
+  JAIL_MAX_TURNS,
+  LEASE_ROUNDS,
+  SPIDERVERSE_FEE,
+  holding,
+  leaseAmount,
+  propertiesOf,
+  sellBuildingValue,
+  sellPropertyValue,
+} from '@shared/rules.ts'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -16,6 +28,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 import { Button } from '@/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
 import { act } from '@/store'
 import { Coins } from './bits'
@@ -38,11 +51,16 @@ export function useAct() {
 }
 
 const PHASE_WAIT: Record<GameState['phase'], string> = {
+  offer: 'is deciding on Ultimate START',
   roll: 'is about to roll',
-  jail: 'is plotting a Raft escape',
+  jail: 'is plotting a jailbreak',
   buy: 'is deciding whether to buy',
-  signpost: 'is choosing a way',
-  portal: 'is choosing a portal destination',
+  fate: 'is rolling for fate',
+  choose: 'is making a choice',
+  shop: 'is shopping at the Token Shop',
+  spiderverse: 'is in the Spider-Verse',
+  leaseSpot: 'is at the Lease spot',
+  web: 'is waiting on a Web card',
   manage: 'is managing their empire',
   debt: 'is scrambling to pay a debt',
 }
@@ -57,58 +75,127 @@ function BigButton({ className, ...props }: React.ComponentProps<typeof Button>)
   )
 }
 
+const Title = ({ children, className }: { children: React.ReactNode; className?: string }) => (
+  <div className={cn('text-center font-comic text-xl text-shadow-comic', className)}>{children}</div>
+)
+
+function Waiting({ text }: { text: React.ReactNode }) {
+  return (
+    <div className="flex items-center justify-center gap-2 text-center text-sm text-white/80">
+      <Hourglass className="size-4 shrink-0 animate-pulse" />
+      <span>{text}</span>
+    </div>
+  )
+}
+
 export function ActionPanel({ state, me, animating }: { state: GameState; me: string; animating: boolean }) {
   const { run, busy } = useAct()
-  const current = state.players.find((p) => p.id === state.current)
   const player = state.players.find((p) => p.id === me)
-  if (!current || !player) return null
+  if (!player) return null
+  const disabled = busy || animating
 
-  if (state.current !== me) {
+  // Game start: everyone decides on Ultimate START
+  if (state.phase === 'offer') {
+    if (!state.offerPending.includes(me)) return <Waiting text={`Waiting for ${state.offerPending.length} player(s) to decide on Ultimate START…`} />
     return (
-      <div className="flex items-center justify-center gap-2 text-sm text-white/80">
-        <Hourglass className="size-4 animate-pulse" />
-        <span>
-          <b className="text-white">{current.name}</b> {PHASE_WAIT[state.phase]}…
-        </span>
+      <div className="flex max-w-sm flex-col items-center gap-2 text-center">
+        <Title className="text-amber-300">Ultimate START?</Title>
+        <p className="text-sm text-white/80">
+          Pay <Coins value={100_000} /> once and collect <b>10,000</b> instead of 5,000 every time you cross or land on START.
+        </p>
+        {player.cash - 100_000 < 20_000 && (
+          <p className="text-xs text-amber-300">Careful: that leaves you only {(player.cash - 100_000).toLocaleString('en-US')} coins to start with.</p>
+        )}
+        <div className="flex gap-2">
+          <BigButton onClick={() => run({ type: 'ultimateOffer', buy: true })} disabled={busy || player.cash < 100_000}>
+            Buy it
+          </BigButton>
+          <BigButton variant="secondary" onClick={() => run({ type: 'ultimateOffer', buy: false })} disabled={busy}>
+            No thanks
+          </BigButton>
+        </div>
       </div>
     )
   }
 
+  // A Web card decision belongs to the card holder, even on someone else's turn
+  if (state.phase === 'web' && state.webPrompt) {
+    const w = state.webPrompt
+    const victim = state.players.find((p) => p.id === w.victim)
+    if (w.owner !== me) return <Waiting text={`${state.players.find((p) => p.id === w.owner)?.name} may use a Web card…`} />
+    return (
+      <div className="flex max-w-sm flex-col items-center gap-2 text-center">
+        <Title className="text-sky-300">Use your Web card?</Title>
+        <p className="text-sm text-white/80">
+          Glue <b>{victim?.name}</b> at <b>{TILES[w.tile].name}</b> for 3 more turns. They pay you rent every turn.
+        </p>
+        <div className="flex gap-2">
+          <BigButton onClick={() => run({ type: 'web', use: true })} disabled={busy}>
+            Web them!
+          </BigButton>
+          <BigButton variant="secondary" onClick={() => run({ type: 'web', use: false })} disabled={busy}>
+            Not now
+          </BigButton>
+        </div>
+      </div>
+    )
+  }
+
+  const current = state.players.find((p) => p.id === state.current)
+  if (!current) return null
+  if (state.current !== me)
+    return (
+      <Waiting
+        text={
+          <>
+            <b className="text-white">{current.name}</b> {PHASE_WAIT[state.phase]}…
+          </>
+        }
+      />
+    )
   if (player.bankrupt) return null
-  const disabled = busy || animating
   const tile = TILES[player.pos]
 
   switch (state.phase) {
     case 'roll':
       return (
         <div className="flex flex-col items-center gap-2">
-          {state.canRollAgain && <div className="font-comic text-lg text-amber-300 text-shadow-comic">Doubles! Roll again</div>}
+          {state.canRollAgain && <Title className="text-amber-300">Doublet! Roll again</Title>}
           <BigButton onClick={() => run({ type: 'roll' })} disabled={disabled} className="h-14 px-8 text-2xl">
             <Dices className="size-6" /> Roll dice
           </BigButton>
-          <div className="text-[11px] text-white/60">Press Space · build or lease from My Stuff first</div>
+          <QuickCards player={player} disabled={disabled} run={run} />
+          <div className="text-[11px] text-white/60">Press Space · build or use power cards from My Stuff</div>
         </div>
       )
 
-    case 'jail':
+    case 'jail': {
+      const triesLeft = JAIL_DOUBLET_TRIES - player.jailRolls
       return (
         <div className="flex flex-col items-center gap-2 text-center">
-          <div className="font-comic text-xl text-sky-300 text-shadow-comic">Locked in The Raft ({player.jailTurns}/3)</div>
+          <Title className="text-sky-300">
+            In jail · turn {player.jailTurns}/{JAIL_MAX_TURNS}
+          </Title>
+          <div className="text-xs text-white/70">No income while you’re inside. Doublet chances left: {triesLeft}</div>
           <div className="flex flex-wrap justify-center gap-2">
-            <BigButton onClick={() => run({ type: 'roll' })} disabled={disabled}>
-              <Dices /> Roll doubles
+            <BigButton onClick={() => run({ type: 'roll' })} disabled={disabled || triesLeft <= 0}>
+              <Dices /> Roll doublet
             </BigButton>
             <BigButton variant="secondary" onClick={() => run({ type: 'payBail' })} disabled={disabled || player.cash < JAIL_BAIL}>
-              <KeyRound /> Bail <Coins value={JAIL_BAIL} className="font-sans text-sm" />
+              <KeyRound /> Pay <Coins value={JAIL_BAIL} className="font-sans text-sm" />
             </BigButton>
-            {player.jailCards > 0 && (
+            {player.items.jailCard > 0 && (
               <BigButton variant="secondary" onClick={() => run({ type: 'useJailCard' })} disabled={disabled}>
-                <DoorOpen /> Pardon ({player.jailCards})
+                <DoorOpen /> Jail card ({player.items.jailCard})
               </BigButton>
             )}
+            <BigButton variant="ghost" onClick={() => run({ type: 'stayInJail' })} disabled={disabled}>
+              Stay
+            </BigButton>
           </div>
         </div>
       )
+    }
 
     case 'buy': {
       const price = tile.card?.price ?? 0
@@ -124,57 +211,81 @@ export function ActionPanel({ state, me, animating }: { state: GameState; me: st
               Pass
             </BigButton>
           </div>
-          {short && <div className="text-xs text-amber-300">Not enough coins. Lease a property from My Stuff to afford it.</div>}
+          {short && <div className="text-xs text-amber-300">Not enough coins. Sell a building or card from My Stuff first.</div>}
         </div>
       )
     }
 
-    case 'signpost':
-      return (
-        <div className="flex flex-col items-center gap-2">
-          <div className="font-comic text-xl text-amber-200 text-shadow-comic">Which way, web-head?</div>
-          <div className="flex flex-col gap-1.5">
-            {(
-              [
-                ['this', 'This Way', '3 spaces forward', ArrowRight],
-                ['that', 'That Way', '3 spaces back', ArrowLeft],
-                ['another', 'Another Way', 'Swing to the other signpost, +2,000', Shuffle],
-              ] as const
-            ).map(([choice, label, hint, Icon], k) => (
-              <button
-                key={choice}
-                disabled={disabled}
-                onClick={() => run({ type: 'signpost', choice })}
-                className={cn(
-                  'group flex items-center gap-3 rounded-md border border-amber-900/60 bg-gradient-to-b from-amber-200 to-amber-400 px-4 py-1.5 text-left text-amber-950 shadow-[0_4px_0_#78350f] transition hover:brightness-110 active:translate-y-0.5 active:shadow-none disabled:opacity-50',
-                  k === 1 ? 'ml-6' : k === 2 ? 'ml-2' : '',
-                )}
-              >
-                <Icon className="size-5" />
-                <span>
-                  <span className="block font-comic text-xl leading-none tracking-wider">{label}</span>
-                  <span className="text-[11px] opacity-80">{hint}</span>
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )
-
-    case 'portal':
+    case 'fate': {
+      const uno = state.fateDeck === 'uno'
       return (
         <div className="flex flex-col items-center gap-2 text-center">
-          <div className="flex items-center gap-2 font-comic text-xl text-fuchsia-300 text-shadow-comic">
-            <Sparkles className="size-5" /> Multiverse Portal
-          </div>
-          <div className="text-sm text-white/80">
-            Click any glowing property to jump there for <Coins value={PORTAL_FEE} />. Rent or buying applies.
-          </div>
-          <BigButton variant="secondary" onClick={() => run({ type: 'portal', target: null })} disabled={disabled}>
-            <X /> Stay here
+          <Title className={uno ? 'text-fuchsia-300' : 'text-amber-200'}>{uno ? 'UNO ( ? )' : 'CHANCE · This Way / That Way'}</Title>
+          <div className="text-xs text-white/70">Roll 2 dice. The number decides your fate (click the spot to see the table).</div>
+          <BigButton onClick={() => run({ type: 'rollFate' })} disabled={disabled} className="h-13 px-7 text-xl">
+            <Dices /> Roll for fate
           </BigButton>
         </div>
       )
+    }
+
+    case 'choose': {
+      const c = state.choice!
+      return (
+        <div className="flex max-w-sm flex-col items-center gap-2 text-center">
+          <Title className="text-sky-300">{c.prompt}</Title>
+          <div className="text-xs text-white/70">Click one of the glowing spots on the board.</div>
+          {c.optional && (
+            <BigButton variant="secondary" onClick={() => run({ type: 'choose', tile: null })} disabled={disabled}>
+              <X /> Skip
+            </BigButton>
+          )}
+        </div>
+      )
+    }
+
+    case 'shop':
+      return <ShopPanel state={state} player={player} disabled={disabled} run={run} />
+
+    case 'spiderverse':
+      return (
+        <div className="flex max-w-md flex-col items-center gap-2 text-center">
+          <Title className="text-fuchsia-300">
+            <Sparkles className="mr-1 inline size-5" /> Spider-Verse
+          </Title>
+          <div className="text-xs text-white/70">
+            Pay <Coins value={SPIDERVERSE_FEE} /> for one power, or walk away.
+          </div>
+          <div className="grid w-full gap-1.5">
+            {(
+              [
+                ['teleport', 'Teleport power', 'Jump to any spot on the board now'],
+                ['reverse', 'Come reverse', 'Get a Reverse card: return to this spot on a later turn'],
+                ['jail', 'Jail no cost', 'Get a Jail card'],
+              ] as const
+            ).map(([power, label, hint]) => (
+              <Button
+                key={power}
+                variant="outline"
+                className="h-auto justify-start py-2 text-left"
+                disabled={disabled || player.cash < SPIDERVERSE_FEE}
+                onClick={() => run({ type: 'spiderverse', power })}
+              >
+                <span>
+                  <span className="block font-semibold">{label}</span>
+                  <span className="text-[11px] text-muted-foreground">{hint}</span>
+                </span>
+              </Button>
+            ))}
+          </div>
+          <BigButton variant="secondary" onClick={() => run({ type: 'spiderverse', power: null })} disabled={disabled}>
+            Leave
+          </BigButton>
+        </div>
+      )
+
+    case 'leaseSpot':
+      return <LeasePanel state={state} player={player} disabled={disabled} run={run} />
 
     case 'manage':
       return (
@@ -182,43 +293,220 @@ export function ActionPanel({ state, me, animating }: { state: GameState; me: st
           <BigButton onClick={() => run({ type: 'endTurn' })} disabled={disabled} className="h-12 px-7 text-xl">
             End turn <ArrowRight className="size-5" />
           </BigButton>
-          <div className="text-[11px] text-white/60">Press Enter · build houses, lease or trade before ending</div>
+          <QuickCards player={player} disabled={disabled} run={run} />
+          <div className="text-[11px] text-white/60">Press Enter · build, trade or use power cards before ending</div>
         </div>
       )
 
     case 'debt':
-      return <DebtPanel state={state} me={me} disabled={disabled} run={run} />
+      return <DebtPanel state={state} player={player} disabled={disabled} run={run} />
+
+    default:
+      return null
   }
 }
 
-function DebtPanel({
-  state,
-  me,
-  disabled,
-  run,
-}: {
-  state: GameState
-  me: string
-  disabled: boolean
-  run: (a: GameAction) => void
-}) {
-  const player = state.players.find((p) => p.id === me)!
+/** One-tap buttons for power cards that can be used before or after rolling. */
+function QuickCards({ player, disabled, run }: { player: Player; disabled: boolean; run: (a: GameAction) => void }) {
+  const it = player.items
+  if (!it.startCard && !it.ultimateStartCard && !it.reverse && !it.sinister) return null
+  return (
+    <div className="flex flex-wrap justify-center gap-1.5">
+      {it.startCard > 0 && (
+        <Button size="sm" variant="outline" disabled={disabled} onClick={() => run({ type: 'useStartCard', ultimate: false })}>
+          <Undo2 /> Start card ({it.startCard})
+        </Button>
+      )}
+      {it.ultimateStartCard > 0 && (
+        <Button size="sm" variant="outline" disabled={disabled} onClick={() => run({ type: 'useStartCard', ultimate: true })}>
+          <Undo2 /> Ultimate Start card ({it.ultimateStartCard})
+        </Button>
+      )}
+      {it.reverse > 0 && (
+        <Button size="sm" variant="outline" disabled={disabled} onClick={() => run({ type: 'useReverse' })}>
+          <Rewind /> Reverse ({it.reverse})
+        </Button>
+      )}
+      {it.sinister > 0 && (
+        <Button size="sm" variant="outline" disabled={disabled} onClick={() => run({ type: 'activateSinister' })}>
+          <Sparkles /> Activate Sinister 6
+        </Button>
+      )}
+    </div>
+  )
+}
+
+function ShopPanel({ state, player, disabled, run }: { state: GameState; player: Player; disabled: boolean; run: (a: GameAction) => void }) {
+  const mine = propertiesOf(state, player.id)
+  return (
+    <div className="flex w-full max-w-lg flex-col items-center gap-2">
+      <Title className="text-amber-300">
+        <ShoppingBag className="mr-1 inline size-5" /> Token Shop
+      </Title>
+      <div className="grid max-h-[min(19rem,40vh)] w-full gap-1 overflow-y-auto pr-1">
+        {SHOP_ITEMS.map((item) => {
+          let blocked: string | null = null
+          if (item.requiresUltimate && !player.ultimateStart) blocked = 'Ultimate START owners only'
+          else if (item.id === 'ultimateStart' && player.ultimateStart) blocked = 'Already owned'
+          else if (item.requiresGroups && !mine.some((i) => item.requiresGroups!.includes(TILES[i].card!.group)))
+            blocked = `Needs a “${GROUPS[item.requiresGroups[0]].symbol}” card`
+          else if (player.cash < item.price) blocked = 'Not enough coins'
+          return (
+            <div key={item.id} className="flex items-center gap-2 rounded-lg border border-white/10 bg-black/40 px-2.5 py-1.5 text-left">
+              <div className="min-w-0 flex-1">
+                <div className="text-sm font-semibold">{item.name}</div>
+                <div className="text-[11px] leading-tight text-white/60">{blocked ?? item.text}</div>
+              </div>
+              <Button size="sm" disabled={disabled || !!blocked} onClick={() => run({ type: 'shopBuy', item: item.id })}>
+                <Coins value={item.price} />
+              </Button>
+            </div>
+          )
+        })}
+      </div>
+      <BigButton variant="secondary" onClick={() => run({ type: 'shopLeave' })} disabled={disabled}>
+        Leave shop
+      </BigButton>
+    </div>
+  )
+}
+
+function LeasePanel({ state, player, disabled, run }: { state: GameState; player: Player; disabled: boolean; run: (a: GameAction) => void }) {
+  const unowned = PROPERTY_INDEXES.filter((i) => !holding(state, i).owner && !holding(state, i).lease)
+  const others = state.players.filter((p) => p.id !== player.id && !p.bankrupt)
+  const [tile, setTile] = useState<string>('')
+  const [level, setLevel] = useState('0')
+  const [other, setOther] = useState<string>(others[0]?.id ?? '')
+  const [card, setCard] = useState<string>('')
+  const pending = new Set(state.leaseOffers.map((o) => o.tile))
+  const swappable = [...propertiesOf(state, player.id), ...(other ? propertiesOf(state, other) : [])].filter((i) => !holding(state, i).lease && !pending.has(i))
+
+  return (
+    <div className="flex w-full max-w-lg flex-col items-center gap-2">
+      <Title className="text-emerald-300">Lease for {LEASE_ROUNDS} rounds</Title>
+      <div className="grid w-full gap-2 sm:grid-cols-2">
+        <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/40 p-2">
+          <div className="text-xs font-semibold">From the unowned pile</div>
+          <Select value={tile} onValueChange={setTile}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder={unowned.length ? 'Pick a card' : 'None left'} />
+            </SelectTrigger>
+            <SelectContent>
+              {unowned.map((i) => (
+                <SelectItem key={i} value={String(i)}>
+                  {TILES[i].name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={level} onValueChange={setLevel}>
+            <SelectTrigger className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LEVEL_LABELS.map((l, k) => (
+                <SelectItem key={l} value={String(k)}>
+                  {l}
+                  {tile ? ` · ${leaseAmount(Number(tile), k).toLocaleString('en-US')}/round` : ''}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            className="w-full"
+            disabled={disabled || !tile}
+            onClick={() => {
+              run({ type: 'leaseUnowned', tile: Number(tile), level: Number(level) })
+              setTile('')
+            }}
+          >
+            Lease it
+          </Button>
+        </div>
+        <div className="space-y-1.5 rounded-lg border border-white/10 bg-black/40 p-2">
+          <div className="text-xs font-semibold">With a player (both must agree)</div>
+          <Select
+            value={other}
+            onValueChange={(v) => {
+              setOther(v)
+              setCard('')
+            }}
+          >
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder="Pick a player" />
+            </SelectTrigger>
+            <SelectContent>
+              {others.map((p) => (
+                <SelectItem key={p.id} value={p.id}>
+                  {p.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Select value={card} onValueChange={setCard}>
+            <SelectTrigger className="w-full">
+              <SelectValue placeholder={swappable.length ? 'Pick a card' : 'No cards'} />
+            </SelectTrigger>
+            <SelectContent>
+              {swappable.map((i) => {
+                const mineCard = holding(state, i).owner === player.id
+                return (
+                  <SelectItem key={i} value={String(i)}>
+                    {mineCard ? 'Lease out my ' : 'Rent their '}
+                    {TILES[i].name} · {leaseAmount(i, holding(state, i).level).toLocaleString('en-US')}/round
+                  </SelectItem>
+                )
+              })}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            variant="secondary"
+            className="w-full"
+            disabled={disabled || !card || !other}
+            onClick={() => {
+              run({ type: 'proposeLease', tile: Number(card), with: other })
+              setCard('')
+            }}
+          >
+            Send lease offer
+          </Button>
+        </div>
+      </div>
+      <div className="text-[11px] text-white/60">The renter pays the card’s lease value each round and collects its rent (no set bonus).</div>
+      <BigButton variant="secondary" onClick={() => run({ type: 'leaveLeaseSpot' })} disabled={disabled}>
+        Done
+      </BigButton>
+    </div>
+  )
+}
+
+function DebtPanel({ state, player, disabled, run }: { state: GameState; player: Player; disabled: boolean; run: (a: GameAction) => void }) {
   const debt = state.debt!
-  const leaseable = propertiesOf(state, me).filter((i) => !holding(state, i).leased)
+  const mine = propertiesOf(state, player.id).filter((i) => !holding(state, i).lease)
   const short = Math.max(0, debt.amount - player.cash)
   return (
     <div className="flex w-full max-w-md flex-col items-center gap-2 text-center">
-      <div className="font-comic text-xl text-red-400 text-shadow-comic">You owe {debt.amount.toLocaleString('en-US')} for {debt.reason}</div>
+      <Title className="text-red-400">
+        You owe {debt.amount.toLocaleString('en-US')} for {debt.reason}
+      </Title>
       <div className="text-sm text-white/80">
         Cash <Coins value={player.cash} /> · short <Coins value={short} className="text-red-300" />
       </div>
-      {leaseable.length > 0 && (
-        <div className="flex max-h-28 w-full flex-wrap justify-center gap-1 overflow-y-auto">
-          {leaseable.map((i) => (
-            <Button key={i} size="sm" variant="outline" disabled={disabled} onClick={() => run({ type: 'lease', tile: i })}>
-              Lease {TILES[i].name} <span className="font-mono text-emerald-300">+{leasePayout(state, i).toLocaleString('en-US')}</span>
-            </Button>
-          ))}
+      {mine.length > 0 && (
+        <div className="flex max-h-32 w-full flex-wrap justify-center gap-1 overflow-y-auto">
+          {mine.map((i) =>
+            holding(state, i).level > 0 ? (
+              <Button key={i} size="sm" variant="outline" disabled={disabled} onClick={() => run({ type: 'sellBuilding', tile: i })}>
+                Sell building on {TILES[i].name} <span className="font-mono text-emerald-300">+{sellBuildingValue(i).toLocaleString('en-US')}</span>
+              </Button>
+            ) : (
+              <Button key={i} size="sm" variant="outline" disabled={disabled} onClick={() => run({ type: 'sellProperty', tile: i })}>
+                Sell {TILES[i].name} <span className="font-mono text-emerald-300">+{sellPropertyValue(state, i).toLocaleString('en-US')}</span>
+              </Button>
+            ),
+          )}
         </div>
       )}
       <div className="flex gap-2">
@@ -235,7 +523,7 @@ function DebtPanel({
             <AlertDialogHeader>
               <AlertDialogTitle>Declare bankruptcy?</AlertDialogTitle>
               <AlertDialogDescription>
-                You will be out of the game. Your coins and properties go to {debt.to ? state.players.find((p) => p.id === debt.to)?.name : 'the bank'}. This cannot be undone.
+                You will be out of the game. Your coins and cards go to {debt.to ? state.players.find((p) => p.id === debt.to)?.name : 'the bank'}. This cannot be undone.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

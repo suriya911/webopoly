@@ -223,13 +223,6 @@ export function Lobby({ state, me }: { state: GameState; me: string }) {
                   </Select>
                 </div>
               ))}
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <div className="text-sm font-medium">Stash jackpot</div>
-                  <div className="text-xs text-muted-foreground">Taxes & fines pile up on Spider-Sense Stash</div>
-                </div>
-                <Switch checked={state.settings.stashPot} disabled={!isHost} onCheckedChange={(v) => setSetting('stashPot', v)} />
-              </div>
               {isHost ? (
                 <Button
                   className="mt-2 h-12 w-full font-comic text-xl tracking-wider"

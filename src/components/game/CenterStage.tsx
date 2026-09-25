@@ -6,7 +6,7 @@ import { useNow } from '@/hooks/misc'
 import { sfx } from '@/lib/sfx'
 import { useStore } from '@/store'
 import { ActionPanel } from './ActionPanel'
-import { Coins, PlayerAvatar, playerColor } from './bits'
+import { PlayerAvatar, playerColor } from './bits'
 import { Dice } from './Dice'
 
 export function TurnTimer({ state }: { state: GameState }) {
@@ -46,8 +46,10 @@ function CardPopup({ card, name, onClose }: { card: CardEvent; name: string; onC
       >
         <div className="web-bg absolute inset-0 opacity-60" />
         <div className="relative">
-          <div className="mx-auto mb-2 grid size-10 place-items-center rounded-full bg-sky-400/20 font-comic text-3xl text-sky-300">?</div>
-          <div className="text-[10px] tracking-[0.3em] text-sky-200/70 uppercase">Spider-Sense · {name}</div>
+          <div className="mx-auto mb-2 grid size-12 place-items-center rounded-full bg-sky-400/20 font-comic text-3xl text-sky-300">{card.roll}</div>
+          <div className="text-[10px] tracking-[0.3em] text-sky-200/70 uppercase">
+            {card.deck === 'uno' ? 'UNO ( ? )' : card.deck === 'chance' ? 'CHANCE' : 'Random roll'} · {name}
+          </div>
           <div className="mt-1 font-comic text-3xl text-white text-shadow-comic">{card.title}</div>
           <p className="mt-2 text-sm text-white/85">{card.text}</p>
           <p className="mt-3 text-[10px] text-white/40">tap to close</p>
@@ -86,11 +88,9 @@ export function CenterStage({ state, me, showActions, animating }: { state: Game
       {/* Turn banner */}
       <div className="flex w-full items-center justify-between gap-2">
         <div className="font-comic text-[clamp(16px,2.6vw,34px)] leading-none tracking-wider text-red-500 text-shadow-comic">WEBOPOLY</div>
-        {state.pot > 0 && state.settings.stashPot && (
-          <div className="glass flex items-center gap-1 rounded-full px-2.5 py-1 text-xs" title="Spider-Sense Stash pot">
-            Stash <Coins value={state.pot} />
-          </div>
-        )}
+        <div className="glass rounded-full px-2.5 py-1 text-[11px] text-white/70" title="Players move anticlockwise">
+          ↺ anticlockwise
+        </div>
       </div>
 
       {current && (

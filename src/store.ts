@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import type { ChatMessage, GameState, VoicePeerState } from '@shared/types.ts'
+import type { RuleTopic } from '@/components/Rules'
 import { session } from '@/lib/session'
 import { emit, socket } from '@/lib/socket'
 
@@ -29,6 +30,8 @@ interface Store {
   deafened: boolean
   reactions: Reaction[]
   selectedTile: number | null
+  /** Special spot whose rules are open in a dialog */
+  ruleTopic: RuleTopic | null
   soundOn: boolean
   set: (patch: Partial<Store>) => void
   create: (name: string, avatar?: string) => Promise<void>
@@ -50,6 +53,7 @@ export const useStore = create<Store>((set) => ({
   deafened: false,
   reactions: [],
   selectedTile: null,
+  ruleTopic: null,
   soundOn: true,
   set: (patch) => set(patch),
   create: async (name, avatar) => {

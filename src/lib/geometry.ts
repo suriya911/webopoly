@@ -14,7 +14,12 @@ export interface Rect {
   side: Side
 }
 
+/** Rect of play-order tile i. Play runs anticlockwise, so it is drawn where clockwise art tile (40 - i) % 40 is. */
 export function tileRect(i: number): Rect {
+  return artRect((40 - i) % 40)
+}
+
+function artRect(i: number): Rect {
   const far = 100 - CORNER
   if (i === 0) return { left: 0, top: 0, width: CORNER, height: CORNER, side: 'corner' }
   if (i < 10) return { left: CORNER + (i - 1) * SIDE, top: 0, width: SIDE, height: CORNER, side: 'top' }

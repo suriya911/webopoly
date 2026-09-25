@@ -2,7 +2,6 @@ import confetti from 'canvas-confetti'
 import { useEffect, useRef } from 'react'
 import { Flag, LogOut, Trophy, Volume2, VolumeX } from 'lucide-react'
 import { toast } from 'sonner'
-import { PROPERTY_INDEXES } from '@shared/board.ts'
 import type { GameState } from '@shared/types.ts'
 import {
   AlertDialog,
@@ -32,7 +31,7 @@ import { PlayersPanel } from './game/PlayersPanel'
 import { MyStuff, PropertyDialog } from './game/Properties'
 import { Trades } from './game/Trades'
 import { VoiceControls } from './game/VoiceControls'
-import { RulesDialog } from './Rules'
+import { RulesDialog, TileRulesDialog } from './Rules'
 
 function useGameFeedback(state: GameState, me: string) {
   const prevCurrent = useRef(state.current)
@@ -40,6 +39,7 @@ function useGameFeedback(state: GameState, me: string) {
   const prevJail = useRef(state.players.find((p) => p.id === me)?.inJail)
   const prevStatus = useRef(state.status)
   const prevTrades = useRef(new Set(state.trades.map((t) => t.id)))
+  const prevLeases = useRef(new Set(state.leaseOffers.map((o) => o.id)))
 
   useEffect(() => {
     if (state.rollSeq !== prevRoll.current) sfx.dice()
@@ -63,6 +63,14 @@ function useGameFeedback(state: GameState, me: string) {
     }
     prevTrades.current = new Set(state.trades.map((t) => t.id))
 
+    for (const o of state.leaseOffers) {
+      if (!prevLeases.current.has(o.id) && o.from !== me && (o.lessor === me || o.lessee === me)) {
+        const from = state.players.find((p) => p.id === o.from)
+        toast(`${from?.name} sent you a lease offer`, { icon: '📜' })
+      }
+    }
+    prevLeases.current = new Set(state.leaseOffers.map((o) => o.id))
+
     if (state.status === 'finished' && prevStatus.current !== 'finished') {
       sfx.win()
       const end = Date.now() + 2500
@@ -82,7 +90,10 @@ function useShortcuts(state: GameState, me: string, animating: boolean) {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement
       if (el.closest('input,textarea,[role=dialog],[role=alertdialog]') || state.current !== me || animating) return
-      if (e.code === 'Space' && (state.phase === 'roll' || state.phase === 'jail')) {
+      if (e.code === 'Space' && state.phase === 'fate') {
+        e.preventDefault()
+        act({ type: 'rollFate' }).catch((err: Error) => toast.error(err.message))
+      } else if (e.code === 'Space' && (state.phase === 'roll' || state.phase === 'jail')) {
         e.preventDefault()
         act({ type: 'roll' }).catch((err: Error) => toast.error(err.message))
       } else if (e.key === 'Enter' && state.phase === 'manage') {
@@ -139,8 +150,10 @@ export function GameScreen({ state, me }: { state: GameState; me: string }) {
   useShortcuts(state, me, animating)
 
   const my = state.players.find((p) => p.id === me)
-  const pickPortal = state.phase === 'portal' && state.current === me && !animating
-  const incoming = state.trades.filter((t) => t.to === me).length
+  const picking = state.phase === 'choose' && state.current === me && !animating ? state.choice?.tiles : undefined
+  const incoming =
+    state.trades.filter((t) => t.to === me).length +
+    state.leaseOffers.filter((o) => o.from !== me && (o.lessor === me || o.lessee === me)).length
 
   return (
     <div className="mx-auto flex min-h-dvh max-w-[1600px] flex-col gap-3 p-2 sm:p-3 lg:h-dvh">
@@ -208,8 +221,8 @@ export function GameScreen({ state, me }: { state: GameState; me: string }) {
               state={state}
               pos={pos}
               moving={moving}
-              pickable={pickPortal ? PROPERTY_INDEXES : undefined}
-              onPick={(tile) => act({ type: 'portal', target: tile }).catch((e: Error) => toast.error(e.message))}
+              pickable={picking}
+              onPick={(tile) => act({ type: 'choose', tile }).catch((e: Error) => toast.error(e.message))}
             >
               <CenterStage state={state} me={me} showActions={wide} animating={animating} />
             </Board>
@@ -251,6 +264,7 @@ export function GameScreen({ state, me }: { state: GameState; me: string }) {
       </main>
 
       <PropertyDialog state={state} me={me} />
+      <TileRulesDialog settings={state.settings} />
       <WinnerDialog state={state} />
     </div>
   )

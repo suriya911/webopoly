@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { useEffect, useRef, useState } from 'react'
-import { Crown, Gavel, Lock, Mic, MicOff, WifiOff } from 'lucide-react'
+import { Bug, Crown, Gavel, Lock, Mic, MicOff, Siren, WifiOff, Zap } from 'lucide-react'
 import { GROUPS, TILES } from '@shared/board.ts'
 import type { GameState } from '@shared/types.ts'
 import { netWorth, propertiesOf } from '@shared/rules.ts'
@@ -71,7 +71,10 @@ export function PlayersPanel({ state, me }: { state: GameState; me: string }) {
                 <span className="truncate">{p.name}</span>
                 {p.id === me && <span className="rounded bg-white/10 px-1 text-[10px] font-normal text-white/70">you</span>}
                 {state.hostId === p.id && <Crown className="size-3.5 text-amber-300" aria-label="Host" />}
-                {p.inJail && <Lock className="size-3.5 text-sky-300" aria-label="In The Raft" />}
+                {p.inJail && <Lock className="size-3.5 text-sky-300" aria-label="In jail" />}
+                {p.ultimateStart && <Zap className="size-3.5 text-amber-300" aria-label="Ultimate START" />}
+                {p.glued && <Bug className="size-3.5 text-sky-400" aria-label="Glued by a Web card" />}
+                {p.criminal && <Siren className="size-3.5 text-red-400" aria-label="Criminal card" />}
                 {!p.connected && <WifiOff className="size-3.5 text-red-400" aria-label="Disconnected" />}
                 {p.bankrupt && <Gavel className="size-3.5 text-red-400" aria-label="Bankrupt" />}
               </div>
@@ -87,7 +90,7 @@ export function PlayersPanel({ state, me }: { state: GameState; me: string }) {
                       key={i}
                       title={TILES[i].name}
                       className="h-1.5 w-3 rounded-sm"
-                      style={{ background: GROUPS[TILES[i].card!.group].color, opacity: state.holdings[i].leased ? 0.3 : 1 }}
+                      style={{ background: GROUPS[TILES[i].card!.group].color, opacity: state.holdings[i].lease ? 0.4 : 1 }}
                     />
                   ))}
                 </div>
