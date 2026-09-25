@@ -85,6 +85,14 @@ export function PlayersPanel({ state, me }: { state: GameState; me: string }) {
                 <Coins value={p.cash} className="text-amber-200" />
                 <span className="text-white/40">·</span>
                 <span title="Net worth">NW {netWorth(state, p.id).toLocaleString('en-US')}</span>
+                {state.status === 'playing' && state.phase !== 'vote' && state.phase !== 'order' && (
+                  <>
+                    <span className="text-white/40">·</span>
+                    <span title="Cards owned / card limit" className={props.length >= p.cardLimit ? 'text-red-300' : undefined}>
+                      {props.length}/{p.cardLimit} cards
+                    </span>
+                  </>
+                )}
               </div>
               {props.length > 0 && (
                 <div className="mt-1 flex flex-wrap gap-0.5">

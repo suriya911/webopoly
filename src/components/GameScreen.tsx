@@ -90,8 +90,11 @@ function useShortcuts(state: GameState, me: string, animating: boolean) {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement
-      if (el.closest('input,textarea,[role=dialog],[role=alertdialog]') || state.current !== me || animating) return
-      if (e.code === 'Space' && (state.phase === 'roll' || state.phase === 'jail')) {
+      if (el.closest('input,textarea,[role=dialog],[role=alertdialog]') || animating || (state.current !== me && state.phase !== 'order')) return
+      if (e.code === 'Space' && state.phase === 'order' && state.opening?.rollers.includes(me) && state.opening.rolls[me] === undefined) {
+        e.preventDefault()
+        act({ type: 'openingRoll' }).catch((err: Error) => toast.error(err.message))
+      } else if (e.code === 'Space' && (state.phase === 'roll' || state.phase === 'jail')) {
         e.preventDefault()
         act({ type: 'roll' }).catch((err: Error) => toast.error(err.message))
       } else if (e.key === 'Enter' && state.phase === 'manage') {

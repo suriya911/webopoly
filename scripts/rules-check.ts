@@ -3,12 +3,23 @@ import assert from 'node:assert/strict'
 import { LEASE_INDEX, SHOP_INDEX, SPIDERVERSE_INDEX, TILES } from '../shared/board.ts'
 import { Game } from '../server/game.ts'
 
+/** Everyone votes "highest" and rolls until the first player is decided. */
+function finishOpening(game: Game) {
+  for (const p of game.state.players) game.act(p.id, { type: 'vote', choice: 'highest' })
+  let guard = 0
+  while (game.state.phase === 'order' && guard++ < 50) {
+    const o = game.state.opening!
+    game.act(o.rollers.find((id) => o.rolls[id] === undefined)!, { type: 'openingRoll' })
+  }
+}
+
 function setup() {
   const game = new Game('T', () => {})
   game.addPlayer('A')
   game.addPlayer('B')
   game.updateSettings(game.state.hostId, { turnSeconds: 0 })
   game.start(game.state.hostId)
+  finishOpening(game)
   for (const id of [...game.state.offerPending]) game.act(id, { type: 'ultimateOffer', buy: false })
   const me = game.player(game.state.current!)
   const other = game.state.players.find((p) => p.id !== me.id)!
@@ -138,6 +149,70 @@ check('One upgrade, only on the owned card the player just landed on', () => {
   game.act(me.id, { type: 'build', tile: a })
   assert.equal(game.state.holdings[a].level, 1)
   assert.throws(() => game.act(me.id, { type: 'build', tile: a }), /one upgrade/)
+})
+
+check('Majority vote picks the rule; lowest roll starts when lowest wins', () => {
+  const game = new Game('V', () => {})
+  for (const n of ['A', 'B', 'C']) game.addPlayer(n)
+  game.start(game.state.hostId)
+  const [a, b, c] = game.state.players
+  game.act(a.id, { type: 'vote', choice: 'lowest' })
+  game.act(b.id, { type: 'vote', choice: 'lowest' })
+  game.act(c.id, { type: 'vote', choice: 'highest' })
+  assert.equal(game.state.opening!.rule, 'lowest')
+  assert.equal(game.state.phase, 'order')
+  const g = game as any
+  const fixed: Record<string, [number, number]> = { [a.id]: [3, 3], [b.id]: [1, 2], [c.id]: [6, 6] }
+  for (const p of [a, b, c]) {
+    g.throwDice = () => ((game.state.dice = fixed[p.id]), fixed[p.id])
+    game.act(p.id, { type: 'openingRoll' })
+  }
+  // Lowest roll (3) starts, then seat order around the table
+  assert.deepEqual(
+    game.state.players.map((p) => p.name),
+    ['B', 'C', 'A'],
+  )
+})
+
+check('Tied opening rolls are rolled again by the tied players only', () => {
+  const game = new Game('W', () => {})
+  for (const n of ['A', 'B', 'C']) game.addPlayer(n)
+  game.start(game.state.hostId)
+  for (const p of game.state.players) game.act(p.id, { type: 'vote', choice: 'highest' })
+  const [a, b, c] = game.state.players
+  const g = game as any
+  const roll = (p: { id: string }, d: [number, number]) => {
+    g.throwDice = () => ((game.state.dice = d), d)
+    game.act(p.id, { type: 'openingRoll' })
+  }
+  roll(a, [6, 6])
+  roll(b, [6, 6])
+  roll(c, [1, 1])
+  assert.deepEqual([...game.state.opening!.rollers].sort(), [a.id, b.id].sort())
+  roll(a, [2, 1])
+  roll(b, [5, 5])
+  assert.equal(game.state.players[0].id, b.id)
+})
+
+check('Card limits: 30 cards split, extras to the first players', () => {
+  const game = new Game('L', () => {})
+  for (const n of ['A', 'B', 'C', 'D']) game.addPlayer(n)
+  game.start(game.state.hostId)
+  finishOpening(game)
+  assert.deepEqual(
+    game.state.players.map((p) => p.cardLimit),
+    [8, 8, 7, 7],
+  )
+})
+
+check('A player at their card limit cannot buy', () => {
+  const { game, me } = setup()
+  me.cardLimit = 1
+  const [a, b] = TILES.filter((t) => t.card).map((t) => t.index)
+  game.state.holdings[a] = { owner: me.id, level: 0, lease: null }
+  me.pos = b
+  game.state.phase = 'buy'
+  assert.throws(() => game.act(me.id, { type: 'buy' }), /card limit/)
 })
 
 console.log(`\n${passed} rule checks passed`)

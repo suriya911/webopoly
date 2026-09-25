@@ -96,7 +96,13 @@ for (let g = 0; g < games; g++) {
     const s = game.state
     let actor: Player
     let action: GameAction
-    if (s.phase === 'offer') {
+    if (s.phase === 'vote') {
+      actor = s.players.find((p) => !p.bankrupt && !s.opening!.votes[p.id])!
+      action = { type: 'vote', choice: chance(0.5) ? 'highest' : 'lowest' }
+    } else if (s.phase === 'order') {
+      actor = game.player(s.opening!.rollers.find((id) => s.opening!.rolls[id] === undefined)!)
+      action = { type: 'openingRoll' }
+    } else if (s.phase === 'offer') {
       actor = game.player(s.offerPending[0])
       action = { type: 'ultimateOffer', buy: chance(0.3) }
     } else if (s.phase === 'web') {
@@ -134,6 +140,7 @@ for (let g = 0; g < games; g++) {
     for (const p of game.state.players) {
       if (!p.bankrupt && p.cash < 0) throw new Error(`Negative cash ${p.name} ${p.cash} phase ${game.state.phase}`)
       if (p.pos < 0 || p.pos >= 40) throw new Error('bad pos')
+      if (!p.bankrupt && game.state.status === 'playing' && propertiesOf(game.state, p.id).length > p.cardLimit) throw new Error(`over card limit ${p.name}`)
       if (p.glued && p.inJail) throw new Error('glued in jail')
       if (p.reversing && p.inJail) throw new Error('reversing in jail')
       if (p.reversing) count('reversing')

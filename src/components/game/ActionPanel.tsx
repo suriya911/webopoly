@@ -33,6 +33,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { cn } from '@/lib/utils'
 import { act } from '@/store'
 import { Coins } from './bits'
+import { OpeningRollPanel, VotePanel } from './Opening'
 import { PropertyCard } from './PropertyCard'
 
 export function useAct() {
@@ -52,6 +53,8 @@ export function useAct() {
 }
 
 const PHASE_WAIT: Record<GameState['phase'], string> = {
+  vote: 'is voting',
+  order: 'is rolling for the first turn',
   offer: 'is deciding on Ultimate START',
   roll: 'is about to roll',
   jail: 'is plotting a jailbreak',
@@ -94,7 +97,11 @@ export function ActionPanel({ state, me, animating }: { state: GameState; me: st
   if (!player) return null
   const disabled = busy || animating
 
-  // Game start: everyone decides on Ultimate START
+  // Game start: vote on who starts, then everyone rolls for the first turn
+  if (state.phase === 'vote') return <VotePanel state={state} me={me} busy={busy} run={run} />
+  if (state.phase === 'order') return <OpeningRollPanel state={state} me={me} busy={busy} run={run} />
+
+  // Then everyone decides on Ultimate START
   if (state.phase === 'offer') {
     if (!state.offerPending.includes(me)) return <Waiting text={`Waiting for ${state.offerPending.length} player(s) to decide on Ultimate START…`} />
     return (

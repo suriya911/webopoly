@@ -73,6 +73,9 @@ export function PlayerProfile({ state }: { state: GameState }) {
               </div>
             </DialogHeader>
             <div className="flex flex-wrap gap-1.5">
+              <Badge variant="outline">
+                Cards {owned.length}/{p.cardLimit}
+              </Badge>
               {p.bankrupt && <Badge variant="destructive">Bankrupt</Badge>}
               {p.ultimateStart && <Badge>Ultimate START</Badge>}
               {p.inJail && <Badge variant="secondary">In jail · turn {p.jailTurns}/5</Badge>}

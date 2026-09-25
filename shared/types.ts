@@ -77,6 +77,8 @@ export interface Player {
   /** After a Spider-Verse jump: moves backward each turn until back on the Spider-Verse spot. */
   reversing: boolean
   ultimateStart: boolean
+  /** Most property cards this player may own (30 cards shared out between the players). */
+  cardLimit: number
   items: Items
   effects: Effects
   bankrupt: boolean
@@ -104,6 +106,8 @@ export interface Holding {
 }
 
 export type Phase =
+  | 'vote'
+  | 'order'
   | 'offer'
   | 'roll'
   | 'jail'
@@ -115,6 +119,18 @@ export type Phase =
   | 'web'
   | 'manage'
   | 'debt'
+
+export type StartRule = 'highest' | 'lowest'
+
+export interface Opening {
+  votes: Record<string, StartRule>
+  rule: StartRule | null
+  /** Latest opening roll total per player */
+  rolls: Record<string, number>
+  /** Players who still roll this round (only the tied ones after a tie) */
+  rollers: string[]
+  round: number
+}
 
 export type ChoiceKind = 'surrender' | 'destroyOwn' | 'breakOther' | 'yourPlace' | 'teleport'
 
@@ -205,6 +221,8 @@ export interface GameState {
   phase: Phase
   /** Players who still have to answer the Ultimate START offer at game start */
   offerPending: string[]
+  /** Opening: vote on whether the highest or lowest roll starts, then everyone rolls. */
+  opening: Opening | null
   dice: [number, number]
   rollSeq: number
   holdings: Record<number, Holding>
@@ -229,6 +247,8 @@ export interface GameState {
 }
 
 export type GameAction =
+  | { type: 'vote'; choice: StartRule }
+  | { type: 'openingRoll' }
   | { type: 'ultimateOffer'; buy: boolean }
   | { type: 'roll' }
   | { type: 'buy' }

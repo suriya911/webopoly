@@ -39,6 +39,8 @@ npx tsx scripts/rules-check.ts    # exact checks for the house rules
 
 Everything below is also in the game: the **Rules** tab in the sidebar (the rule book), the **Rules** button at the top, and a popup when you click any special spot. Click a player to see their cards.
 
+- **Starting the game:** everyone has 15 seconds to vote whether the highest or lowest roll starts (majority wins; a tie means highest). Then everyone rolls 2 dice and the winner by that rule goes first. Players tied for first roll again, and play then continues around the table.
+- **Card limit:** the 30 cards are shared out equally, with the first players in turn order getting any extra (2 players: 15 each; 4 players: 8, 8, 7, 7). You can't buy, or trade for, more than your limit. A bankruptcy creditor takes cards only up to their limit; the rest go back to the bank.
 - **Direction:** anticlockwise; from START you go down the left side first. Roll 2 dice. **Doublets never give an extra roll** (except in jail, below).
 - **START:** 5,000 each time you cross or land on it. **Ultimate START** (100,000; offered to every player before the first roll, and sold in the Token Shop) raises that to 10,000.
 - **Cards:** you can build only when you land on your own card, one upgrade per visit (3 houses, then a hotel). **Set bonus:** hold 3+ cards of one color and each earns +2,000 rent.

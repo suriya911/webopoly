@@ -222,6 +222,20 @@ export function RuleBook({ settings }: { settings: Settings }) {
 export function RulesContent({ settings = DEFAULT_SETTINGS }: { settings?: Settings }) {
   return (
     <div className="space-y-5">
+      <Section title="Starting the game">
+        <p>
+          <b>Vote (15 seconds):</b> every player votes whether the <b>highest</b> or the <b>lowest</b> roll starts. The option with the most votes wins; a tie means
+          highest.
+        </p>
+        <p>
+          <b>Roll:</b> everyone rolls 2 dice. The winner of the vote’s rule takes the first turn, then play continues around the table. If players tie for the start, only
+          they roll again.
+        </p>
+        <p>
+          <b>Card limit:</b> the 30 cards are shared out equally. With 2 players each can own 15; with 4 players the first two in turn order can own 8 and the other two 7.
+          You can’t buy, or trade for, more cards than your limit.
+        </p>
+      </Section>
       <Section title="Goal">
         <p>
           Roll 2 dice and move <b>anticlockwise</b>. Buy the Spider-Verse, collect rent and bankrupt your rivals. Everyone starts with <b>{n(settings.startingCash)}</b> WebCoins.

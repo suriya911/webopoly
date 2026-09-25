@@ -51,16 +51,9 @@ export const MIN_PLAYERS = 2
 const DISCONNECTED_TURN_SECONDS = 15
 const OFFER_SECONDS = 45
 const WEB_PROMPT_SECONDS = 25
+const VOTE_SECONDS = 15
+const OPENING_ROLL_SECONDS = 20
 const ULTIMATE_START_PRICE = SHOP_ITEMS.find((i) => i.id === 'ultimateStart')!.price
-
-function shuffle<T>(items: T[]): T[] {
-  const a = [...items]
-  for (let i = a.length - 1; i > 0; i--) {
-    const j = randomInt(i + 1)
-    ;[a[i], a[j]] = [a[j], a[i]]
-  }
-  return a
-}
 
 const rollDie = () => randomInt(1, 7)
 
@@ -77,6 +70,7 @@ export class Game {
   /** Whether the current player has used their dice roll this turn (START cards can be used before or after). */
   private hasRolled = false
   private timer: NodeJS.Timeout | null = null
+  private timerKey = ''
   private logSeq = 0
   private eventSeq = 0
   private readonly onChange: () => void
@@ -93,6 +87,7 @@ export class Game {
       current: null,
       phase: 'roll',
       offerPending: [],
+      opening: null,
       dice: [1, 1],
       rollSeq: 0,
       holdings: {},
@@ -136,6 +131,7 @@ export class Game {
       glued: null,
       reversing: false,
       ultimateStart: false,
+      cardLimit: 30,
       items: { ...EMPTY_ITEMS },
       effects: { ...NO_EFFECTS },
       bankrupt: false,
@@ -203,7 +199,6 @@ export class Game {
     if (s.status !== 'lobby') throw new GameError('Game already started')
     if (s.players.length < MIN_PLAYERS) throw new GameError('Need at least 2 players')
     s.status = 'playing'
-    s.players = shuffle(s.players)
     for (const p of s.players) {
       p.cash = s.settings.startingCash
       p.pos = 0
@@ -211,13 +206,110 @@ export class Game {
     s.startedAt = Date.now()
     s.endsAt = s.settings.timeLimitMinutes ? s.startedAt + s.settings.timeLimitMinutes * 60_000 : null
     s.turn = 0
-    this.log(`Game on! ${s.players.map((p) => p.name).join(', ')} enter the web. ${s.players[0].name} goes first.`, 'system')
+    s.current = null
+    s.phase = 'vote'
+    s.opening = { votes: {}, rule: null, rolls: {}, rollers: [], round: 1 }
+    this.log(`Game on! ${s.players.map((p) => p.name).join(', ')} enter the web. Vote now: should the highest or the lowest roll start? (${VOTE_SECONDS}s)`, 'system')
+  }
+
+  // ---------------------------------------------------------------- opening: vote, roll for first turn, card limits
+
+  private vote(me: Player, choice: 'highest' | 'lowest') {
+    const s = this.state
+    if (s.phase !== 'vote' || !s.opening) throw new GameError('Voting is over')
+    if (choice !== 'highest' && choice !== 'lowest') throw new GameError('Pick highest or lowest')
+    s.opening.votes[me.id] = choice
+    this.log(`${me.name} voted`, 'system', me.id)
+    if (this.activePlayers().every((p) => s.opening!.votes[p.id])) this.finishVote()
+  }
+
+  private finishVote() {
+    const s = this.state
+    const o = s.opening!
+    const tally = { highest: 0, lowest: 0 }
+    for (const p of this.activePlayers()) {
+      const v = o.votes[p.id]
+      if (v) tally[v]++
+    }
+    o.rule = tally.lowest > tally.highest ? 'lowest' : 'highest'
+    const tie = tally.lowest === tally.highest
+    this.log(
+      `Vote result: highest ${tally.highest} · lowest ${tally.lowest}. ${tie ? 'Tie, so the default applies: the ' : 'The '}${o.rule.toUpperCase()} roll starts. Everyone roll!`,
+      'system',
+    )
+    s.phase = 'order'
+    o.rollers = this.activePlayers().map((p) => p.id)
+    o.rolls = {}
+  }
+
+  private openingRoll(me: Player) {
+    const s = this.state
+    const o = s.opening
+    if (s.phase !== 'order' || !o) throw new GameError('Not rolling for the first turn now')
+    if (!o.rollers.includes(me.id)) throw new GameError('You are not rolling this round')
+    if (o.rolls[me.id] !== undefined) throw new GameError('You already rolled')
+    const [a, b] = this.throwDice()
+    o.rolls[me.id] = a + b
+    this.log(`${me.name} rolled ${a} + ${b} = ${a + b} for the first turn`, 'move', me.id)
+    if (o.rollers.every((id) => o.rolls[id] !== undefined)) this.resolveOpening()
+  }
+
+  private resolveOpening() {
+    const s = this.state
+    const o = s.opening!
+    const totals = o.rollers.map((id) => o.rolls[id])
+    const best = o.rule === 'lowest' ? Math.min(...totals) : Math.max(...totals)
+    const tied = o.rollers.filter((id) => o.rolls[id] === best)
+    if (tied.length > 1) {
+      this.log(`Tie at ${best} between ${tied.map((id) => this.player(id).name).join(' and ')}. They roll again`, 'system')
+      o.round++
+      o.rollers = tied
+      for (const id of tied) delete o.rolls[id]
+      return
+    }
+    // The starter goes first, then everyone else in seat order around the table.
+    const idx = s.players.findIndex((p) => p.id === tied[0])
+    s.players = [...s.players.slice(idx), ...s.players.slice(0, idx)]
+    this.assignCardLimits()
+    const starter = s.players[0]
+    this.log(`${starter.name} rolled the ${o.rule} (${best}) and starts! Turn order: ${s.players.map((p) => p.name).join(' → ')}`, 'system', starter.id)
     // Everyone may buy the Ultimate START upgrade before the first roll.
     s.phase = 'offer'
-    s.current = null
-    s.offerPending = s.players.filter((p) => p.cash >= ULTIMATE_START_PRICE).map((p) => p.id)
+    s.offerPending = this.activePlayers()
+      .filter((p) => p.cash >= ULTIMATE_START_PRICE)
+      .map((p) => p.id)
     if (s.offerPending.length) this.log(`Ultimate START is on offer for ${formatCoins(ULTIMATE_START_PRICE)}. Each player can decide now`, 'system')
-    else this.beginTurn(s.players[0].id)
+    else this.beginTurn(starter.id)
+  }
+
+  /** 30 cards shared out between players; the first players in turn order get the extra cards. */
+  private assignCardLimits() {
+    const players = this.state.players
+    const total = PROPERTY_INDEXES.length
+    const base = Math.floor(total / players.length)
+    const extra = total % players.length
+    players.forEach((p, i) => (p.cardLimit = base + (i < extra ? 1 : 0)))
+    this.log(`Card limits: ${players.map((p) => `${p.name} ${p.cardLimit}`).join(', ')}`, 'system')
+  }
+
+  /** Keeps the opening moving when a player leaves in the middle of it. */
+  private checkOpening() {
+    const s = this.state
+    const o = s.opening
+    if (s.status !== 'playing' || s.current) return
+    if (s.phase === 'vote' && o && this.activePlayers().every((p) => o.votes[p.id])) this.finishVote()
+    else if (s.phase === 'order' && o) {
+      o.rollers = o.rollers.filter((id) => !this.player(id).bankrupt)
+      if (o.rollers.length && o.rollers.every((id) => o.rolls[id] !== undefined)) this.resolveOpening()
+    } else if (s.phase === 'offer' && !s.offerPending.length) this.beginTurn(this.activePlayers()[0].id)
+  }
+
+  private activePlayers() {
+    return this.state.players.filter((p) => !p.bankrupt)
+  }
+
+  private atCardLimit(p: Player) {
+    return propertiesOf(this.state, p.id).length >= p.cardLimit
   }
 
   setConnected(id: string, connected: boolean) {
@@ -240,6 +332,10 @@ export class Game {
 
     // Actions that are not tied to the current turn
     switch (action.type) {
+      case 'vote':
+        return this.vote(me, action.choice)
+      case 'openingRoll':
+        return this.openingRoll(me)
       case 'ultimateOffer':
         return this.answerOffer(me, action.buy)
       case 'web':
@@ -362,9 +458,9 @@ export class Game {
   private answerOffer(me: Player, buy: boolean) {
     const s = this.state
     if (s.phase !== 'offer' || !s.offerPending.includes(me.id)) throw new GameError('No offer waiting for you')
+    if (buy && me.cash < ULTIMATE_START_PRICE) throw new GameError('Not enough coins')
     s.offerPending = s.offerPending.filter((id) => id !== me.id)
     if (buy) {
-      if (me.cash < ULTIMATE_START_PRICE) throw new GameError('Not enough coins')
       this.addCash(me, -ULTIMATE_START_PRICE)
       me.ultimateStart = true
       this.log(`${me.name} bought Ultimate START: 10,000 every lap!`, 'build', me.id)
@@ -617,6 +713,10 @@ export class Game {
         if (!h.owner && !h.lease) {
           if (s.criminalTile === tile.index) {
             this.log(`${me.name} holds a Criminal card and can't buy ${tile.name}`, 'jail', me.id)
+            return this.afterResolve()
+          }
+          if (this.atCardLimit(me)) {
+            this.log(`${me.name} has reached their card limit (${me.cardLimit}) and can't buy ${tile.name}`, 'money', me.id)
             return this.afterResolve()
           }
           s.phase = 'buy'
@@ -1037,6 +1137,7 @@ export class Game {
     const h = holding(s, tile.index)
     if (!tile.card || h.owner || h.lease) throw new GameError('Nothing to buy here')
     if (s.criminalTile === tile.index) throw new GameError('Criminal card: you cannot buy here')
+    if (this.atCardLimit(me)) throw new GameError(`You have reached your card limit (${me.cardLimit})`)
     if (me.cash < tile.card.price) throw new GameError('Not enough coins. Sell something first or pass')
     this.addCash(me, -tile.card.price)
     s.holdings[tile.index] = { owner: me.id, level: 0, lease: null }
@@ -1162,12 +1263,17 @@ export class Game {
     me.glued = null
     // Cards this player rents from others go back.
     for (const i of leasedBy(s, me.id)) this.endLease(i)
+    let returned = 0
     for (const i of propertiesOf(s, me.id)) {
       const h = s.holdings[i]
-      if (creditor) {
+      // The creditor takes cards only up to their card limit; the rest go back to the bank.
+      if (creditor && !this.atCardLimit(creditor)) {
         h.owner = creditor.id
         if (h.lease) h.lease.lessor = creditor.id
-      } else if (h.lease) {
+        continue
+      }
+      if (creditor) returned++
+      if (h.lease) {
         // The renter keeps it until the lease ends, then it returns to the unowned pile.
         h.owner = null
         h.lease.lessor = null
@@ -1179,7 +1285,11 @@ export class Game {
     }
     if (creditor) {
       this.transfer(me, creditor, Math.max(0, me.cash))
-      this.log(`${me.name} is BANKRUPT! ${creditor.name} takes every coin and card`, 'system', me.id)
+      this.log(
+        `${me.name} is BANKRUPT! ${creditor.name} takes every coin and card${returned ? ` (${returned} over their card limit went back to the bank)` : ''}`,
+        'system',
+        me.id,
+      )
     } else {
       this.addCash(me, -me.cash)
       this.log(`${me.name} is BANKRUPT! Their cards return to the bank`, 'system', me.id)
@@ -1207,7 +1317,16 @@ export class Game {
     if (me.bankrupt || this.state.status !== 'playing') return
     this.log(`${me.name} forfeited`, 'system', me.id)
     this.goBankrupt(me, null)
-    if (this.state.phase === 'offer' && !this.state.offerPending.length && !this.state.current) this.beginTurn(this.state.players.find((p) => !p.bankrupt)!.id)
+    this.checkOpening()
+  }
+
+  /** A trade may not push either player over their card limit. */
+  private checkTradeLimits(from: Player, to: Player, give: number, get: number) {
+    const s = this.state
+    const fromAfter = propertiesOf(s, from.id).length - give + get
+    const toAfter = propertiesOf(s, to.id).length - get + give
+    if (get > give && fromAfter > from.cardLimit) throw new GameError(`${from.name} would go over their card limit (${from.cardLimit})`)
+    if (give > get && toAfter > to.cardLimit) throw new GameError(`${to.name} would go over their card limit (${to.cardLimit})`)
   }
 
   // ---------------------------------------------------------------- trades
@@ -1222,6 +1341,7 @@ export class Game {
     const giveProps = [...new Set(offer.giveProps)].filter((i) => tradable(i, from))
     const getProps = [...new Set(offer.getProps)].filter((i) => tradable(i, to.id))
     if (!giveProps.length && !getProps.length && !giveCash && !getCash) throw new GameError('Empty trade')
+    this.checkTradeLimits(this.player(from), to, giveProps.length, getProps.length)
     if (s.trades.filter((t) => t.from === from).length >= 3) throw new GameError('You already have 3 open offers')
     s.trades.push({ id: nanoid(8), from, to: to.id, giveProps, giveCash, getProps, getCash })
     this.log(`${this.player(from).name} sent a trade offer to ${to.name}`, 'trade', from)
@@ -1246,6 +1366,7 @@ export class Game {
       from.cash >= trade.giveCash &&
       to.cash >= trade.getCash
     if (!stillValid) throw new GameError('This offer is no longer valid')
+    this.checkTradeLimits(from, to, trade.giveProps.length, trade.getProps.length)
     for (const i of trade.giveProps) s.holdings[i].owner = to.id
     for (const i of trade.getProps) s.holdings[i].owner = from.id
     if (trade.giveCash) this.transfer(from, to, trade.giveCash)
@@ -1285,13 +1406,19 @@ export class Game {
   /** Re-arms the turn timer. Call after every state change. */
   schedule() {
     const s = this.state
+    // Opening phases share one countdown for everyone: don't restart it on every vote or roll.
+    const key = s.phase === 'order' ? `order:${s.opening?.round}` : s.phase
+    if (s.status === 'playing' && ['vote', 'order', 'offer'].includes(s.phase) && this.timerKey === key && this.timer) return
     this.clearTimer()
+    this.timerKey = key
     if (s.status !== 'playing') {
       s.deadline = null
       return
     }
     let secs: number
-    if (s.phase === 'offer') secs = OFFER_SECONDS
+    if (s.phase === 'vote') secs = VOTE_SECONDS
+    else if (s.phase === 'order') secs = OPENING_ROLL_SECONDS
+    else if (s.phase === 'offer') secs = OFFER_SECONDS
     else if (s.phase === 'web') secs = WEB_PROMPT_SECONDS
     else if (!s.current) secs = 0
     else secs = this.player(s.current).connected ? s.settings.turnSeconds : DISCONNECTED_TURN_SECONDS
@@ -1301,6 +1428,7 @@ export class Game {
     }
     s.deadline = Date.now() + secs * 1000
     this.timer = setTimeout(() => {
+      this.timer = null
       try {
         this.autoAct()
       } catch (err) {
@@ -1319,6 +1447,12 @@ export class Game {
 
   private autoAct() {
     const s = this.state
+    if (s.phase === 'vote') return this.finishVote()
+    if (s.phase === 'order') {
+      const o = s.opening!
+      for (const id of [...o.rollers]) if (o.rolls[id] === undefined && s.phase === 'order') this.openingRoll(this.player(id))
+      return
+    }
     if (s.phase === 'offer') {
       for (const id of [...s.offerPending]) this.answerOffer(this.player(id), false)
       return
