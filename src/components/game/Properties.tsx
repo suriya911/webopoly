@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Building2, HandCoins, Rewind, Sparkles, Trash2, Undo2 } from 'lucide-react'
+import { Building2, Sparkles, Undo2 } from 'lucide-react'
 import { GROUPS, TILES, groupMembers, type GroupId } from '@shared/board.ts'
 import type { GameState, Items, Player } from '@shared/types.ts'
 import {
@@ -13,8 +13,6 @@ import {
   ownedInGroup,
   propertiesOf,
   rentCollector,
-  sellBuildingValue,
-  sellPropertyValue,
 } from '@shared/rules.ts'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -26,7 +24,6 @@ import { PlayerAvatar } from './bits'
 import { PropertyCard } from './PropertyCard'
 
 const FREE_PHASES = ['roll', 'manage']
-const SELL_PHASES = ['roll', 'manage', 'debt', 'buy', 'jail']
 
 function withTip(tip: string | null, node: React.ReactNode) {
   return tip ? (
@@ -48,7 +45,6 @@ function PropertyActions({ state, me, tile, size = 'sm' }: { state: GameState; m
   if (h.lease) return <div className="text-xs text-muted-foreground">Leased out. It can’t be changed until the lease ends.</div>
   const myTurn = state.current === me
   const canBuild = myTurn && FREE_PHASES.includes(state.phase)
-  const canSell = myTurn && SELL_PHASES.includes(state.phase)
   const offTurn = !myTurn ? 'Only on your turn' : null
   const blocker = buildBlocker(state, me, tile)
 
@@ -58,19 +54,6 @@ function PropertyActions({ state, me, tile, size = 'sm' }: { state: GameState; m
         offTurn ?? (canBuild ? blocker : 'Finish your current decision first'),
         <Button size={size} disabled={busy || !canBuild || !!blocker} onClick={() => run({ type: 'build', tile })}>
           <Building2 /> Build <span className="font-mono">{buildCost(tile).toLocaleString('en-US')}</span>
-        </Button>,
-      )}
-      {h.level > 0 &&
-        withTip(
-          offTurn,
-          <Button size={size} variant="secondary" disabled={busy || !canSell} onClick={() => run({ type: 'sellBuilding', tile })}>
-            <Trash2 /> Sell building <span className="font-mono text-emerald-300">+{sellBuildingValue(tile).toLocaleString('en-US')}</span>
-          </Button>,
-        )}
-      {withTip(
-        offTurn,
-        <Button size={size} variant="ghost" disabled={busy || !canSell} onClick={() => run({ type: 'sellProperty', tile })}>
-          <HandCoins /> Sell card <span className="font-mono text-emerald-300">+{sellPropertyValue(state, tile).toLocaleString('en-US')}</span>
         </Button>,
       )}
     </div>
@@ -131,7 +114,6 @@ const ITEM_LABELS: Record<keyof Items, string> = {
   sinister: 'Sinister 6 card',
   web: 'Web card',
   symbiote: 'Symbiote card',
-  reverse: 'Reverse card',
 }
 
 function SymbioteDialog({ state, me, disabled }: { state: GameState; me: Player; disabled: boolean }) {
@@ -192,7 +174,8 @@ function PowerCards({ state, player }: { state: GameState; player: Player }) {
   const held = (Object.keys(ITEM_LABELS) as (keyof Items)[]).filter((k) => it[k] > 0)
   const effects: string[] = []
   if (player.ultimateStart) effects.push('Ultimate START: 10,000 every round')
-  if (e.rentTurns > 0) effects.push(`Pay ${e.rentMult}x rent for ${e.rentTurns} turn${e.rentTurns === 1 ? '' : 's'}${e.rentPending ? ' (from next turn)' : ''}`)
+  if (e.rentPayments > 0) effects.push(`Pay ${e.rentMult}x rent on your next ${e.rentPayments} rent payment${e.rentPayments === 1 ? '' : 's'}`)
+  if (player.reversing) effects.push('Spider-Verse trip: moving in reverse back to the Spider-Verse')
   if (e.setBoostTiles > 0) effects.push(`Set bonus +2,000 extra · ${Math.ceil(e.setBoostTiles / ROUND_TILES)} round(s) left`)
   if (e.sinisterTiles > 0) effects.push(`Sinister 6 active · ${Math.ceil(e.sinisterTiles / ROUND_TILES)} round(s) left`)
   if (e.skipStart) effects.push('No START reward next time')
@@ -208,12 +191,6 @@ function PowerCards({ state, player }: { state: GameState; player: Player }) {
         return (
           <Button size="sm" disabled={disabled} onClick={() => run({ type: 'useStartCard', ultimate: k === 'ultimateStartCard' })}>
             <Undo2 /> Go to START
-          </Button>
-        )
-      case 'reverse':
-        return (
-          <Button size="sm" disabled={disabled} onClick={() => run({ type: 'useReverse' })}>
-            <Rewind /> Use
           </Button>
         )
       case 'sinister':

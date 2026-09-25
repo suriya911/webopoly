@@ -56,10 +56,13 @@ export function PlayersPanel({ state, me }: { state: GameState; me: string }) {
         const props = propertiesOf(state, p.id)
         const isTurn = state.current === p.id && state.status === 'playing'
         return (
-          <div
+          <button
+            type="button"
             key={p.id}
+            onClick={() => useStore.getState().set({ profileId: p.id })}
+            title={`See ${p.name}'s cards`}
             className={cn(
-              'relative flex items-center gap-3 rounded-xl border border-transparent bg-white/[0.03] p-2 transition',
+              'relative flex w-full items-center gap-3 rounded-xl border border-transparent bg-white/[0.03] p-2 text-left transition hover:bg-white/[0.07]',
               isTurn && 'border-white/15 bg-white/[0.08]',
               p.bankrupt && 'opacity-45 grayscale',
             )}
@@ -118,7 +121,7 @@ export function PlayersPanel({ state, me }: { state: GameState; me: string }) {
                 ))}
               </AnimatePresence>
             </div>
-          </div>
+          </button>
         )
       })}
     </div>

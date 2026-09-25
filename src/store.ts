@@ -32,6 +32,8 @@ interface Store {
   selectedTile: number | null
   /** Special spot whose rules are open in a dialog */
   ruleTopic: RuleTopic | null
+  /** Player whose cards are shown in the profile dialog */
+  profileId: string | null
   soundOn: boolean
   set: (patch: Partial<Store>) => void
   create: (name: string, avatar?: string) => Promise<void>
@@ -54,6 +56,7 @@ export const useStore = create<Store>((set) => ({
   reactions: [],
   selectedTile: null,
   ruleTopic: null,
+  profileId: null,
   soundOn: true,
   set: (patch) => set(patch),
   create: async (name, avatar) => {

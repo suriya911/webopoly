@@ -25,7 +25,6 @@ export interface Items {
   sinister: number
   web: number
   symbiote: number
-  reverse: number
 }
 
 export const EMPTY_ITEMS: Items = {
@@ -37,15 +36,12 @@ export const EMPTY_ITEMS: Items = {
   sinister: 0,
   web: 0,
   symbiote: 0,
-  reverse: 0,
 }
 
 export interface Effects {
-  /** Multiplier on rent this player pays, for their next `rentTurns` turns. */
+  /** Multiplier on rent this player pays to other players, for their next `rentPayments` payments. */
   rentMult: number
-  rentTurns: number
-  /** True until the player's next turn starts; the modifier applies from then on. */
-  rentPending: boolean
+  rentPayments: number
   /** Board tiles of travel left with +2,000 extra set bonus (2 rounds = 80). */
   setBoostTiles: number
   /** Board tiles of travel left with the Sinister Six card active. */
@@ -56,8 +52,7 @@ export interface Effects {
 
 export const NO_EFFECTS: Effects = {
   rentMult: 1,
-  rentTurns: 0,
-  rentPending: false,
+  rentPayments: 0,
   setBoostTiles: 0,
   sinisterTiles: 0,
   skipStart: false,
@@ -79,6 +74,8 @@ export interface Player {
   criminal: boolean
   /** Stuck by a Web card: pays that tile's rent each turn instead of moving. */
   glued: { tile: number; turns: number } | null
+  /** After a Spider-Verse jump: moves backward each turn until back on the Spider-Verse spot. */
+  reversing: boolean
   ultimateStart: boolean
   items: Items
   effects: Effects
@@ -92,10 +89,11 @@ export interface Lease {
   /** null when leased from the bank's unowned pile */
   lessor: string | null
   level: number
-  /** Paid every round (40 tiles of the lessee's travel) */
+  /** Paid every round, i.e. each time the renter comes back round to the Lease spot */
   amount: number
   paymentsLeft: number
-  progress: number
+  /** False until the renter first reaches the Lease spot (when the lease was agreed elsewhere). */
+  started: boolean
 }
 
 export interface Holding {
@@ -110,7 +108,6 @@ export type Phase =
   | 'roll'
   | 'jail'
   | 'buy'
-  | 'fate'
   | 'choose'
   | 'shop'
   | 'spiderverse'
@@ -210,12 +207,9 @@ export interface GameState {
   offerPending: string[]
   dice: [number, number]
   rollSeq: number
-  doubles: number
-  canRollAgain: boolean
   holdings: Record<number, Holding>
   debt: Debt | null
   choice: Choice | null
-  fateDeck: 'chance' | 'uno' | null
   webPrompt: { owner: string; victim: string; tile: number } | null
   /** Tile where a freshly released prisoner may not buy or build this turn */
   criminalTile: number | null
@@ -237,17 +231,15 @@ export type GameAction =
   | { type: 'roll' }
   | { type: 'buy' }
   | { type: 'pass' }
-  | { type: 'rollFate' }
   | { type: 'choose'; tile: number | null }
   | { type: 'payBail' }
   | { type: 'useJailCard' }
   | { type: 'stayInJail' }
   | { type: 'build'; tile: number }
-  | { type: 'sellBuilding'; tile: number }
   | { type: 'sellProperty'; tile: number }
   | { type: 'shopBuy'; item: ShopItem }
   | { type: 'shopLeave' }
-  | { type: 'spiderverse'; power: 'teleport' | 'reverse' | 'jail' | null }
+  | { type: 'spiderverse'; go: boolean }
   | { type: 'leaseUnowned'; tile: number; level: number }
   | { type: 'proposeLease'; tile: number; with: string }
   | { type: 'respondLease'; id: string; accept: boolean }
@@ -255,7 +247,6 @@ export type GameAction =
   | { type: 'leaveLeaseSpot' }
   | { type: 'web'; use: boolean }
   | { type: 'useStartCard'; ultimate: boolean }
-  | { type: 'useReverse' }
   | { type: 'activateSinister' }
   | { type: 'useSymbiote'; target: string; tile: number }
   | { type: 'payDebt' }

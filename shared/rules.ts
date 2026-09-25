@@ -66,9 +66,10 @@ export function baseRent(state: GameState, tile: number): number {
   return rent
 }
 
+/** Half / 1.5x / double rent cards apply to the player's next rent payments to other players. */
 export function payerMultiplier(payer: Player): number {
   const e = payer.effects
-  return e.rentTurns > 0 && !e.rentPending ? e.rentMult : 1
+  return e.rentPayments > 0 ? e.rentMult : 1
 }
 
 export function rentFor(state: GameState, tile: number, payerId?: string): number {
@@ -104,10 +105,14 @@ export function propertyValue(state: GameState, tile: number): number {
   return card.price + holding(state, tile).level * card.build
 }
 
-/** Refunds when selling back to the bank to raise money. */
-export const sellBuildingValue = (tile: number) => roundTo100(buildCost(tile) / 2)
+/** Selling a card back to the bank (only to pay a debt) refunds the card price plus everything spent building on it. */
 export function sellPropertyValue(state: GameState, tile: number): number {
-  return roundTo100(propertyValue(state, tile) / 2)
+  return propertyValue(state, tile)
+}
+
+/** Backward steps from a tile to the Spider-Verse spot. */
+export function stepsBackTo(from: number, target: number): number {
+  return (from - target + 40) % 40
 }
 
 export function propertiesOf(state: GameState, playerId: string): number[] {

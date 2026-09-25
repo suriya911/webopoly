@@ -24,7 +24,6 @@ function freeAction(s: GameState, me: Player): GameAction | null {
   }
   if (me.items.sinister && chance(0.5)) return { type: 'activateSinister' }
   if (me.items.startCard && chance(0.3)) return { type: 'useStartCard', ultimate: false }
-  if (me.items.reverse && chance(0.2)) return { type: 'useReverse' }
   const b = mine.find((i) => !buildBlocker(s, me.id, i))
   if (b !== undefined && me.cash > 60000 && chance(0.3)) return { type: 'build', tile: b }
   return null
@@ -40,8 +39,6 @@ function decide(s: GameState, me: Player): GameAction {
       return me.jailRolls < 3 ? { type: 'roll' } : { type: 'stayInJail' }
     case 'buy':
       return me.cash > TILES[me.pos].card!.price + 5000 ? { type: 'buy' } : { type: 'pass' }
-    case 'fate':
-      return { type: 'rollFate' }
     case 'choose':
       return { type: 'choose', tile: pick(s.choice!.tiles) }
     case 'shop': {
@@ -49,7 +46,7 @@ function decide(s: GameState, me: Player): GameAction {
       return affordable.length && chance(0.6) ? { type: 'shopBuy', item: pick(affordable).id } : { type: 'shopLeave' }
     }
     case 'spiderverse':
-      return { type: 'spiderverse', power: chance(0.5) ? pick(['teleport', 'reverse', 'jail'] as const) : null }
+      return { type: 'spiderverse', go: chance(0.6) }
     case 'leaseSpot': {
       if (chance(0.4)) {
         const free = PROPERTY_INDEXES.filter((i) => !holding(s, i).owner && !holding(s, i).lease)
@@ -77,9 +74,7 @@ function decide(s: GameState, me: Player): GameAction {
     }
     case 'debt': {
       const mine = propertiesOf(s, me.id).filter((i) => !holding(s, i).lease)
-      const built = mine.find((i) => holding(s, i).level > 0)
       if (me.cash >= s.debt!.amount) return { type: 'payDebt' }
-      if (built !== undefined) return { type: 'sellBuilding', tile: built }
       if (mine.length) return { type: 'sellProperty', tile: mine[0] }
       return { type: 'bankrupt' }
     }
@@ -133,13 +128,15 @@ for (let g = 0; g < games; g++) {
       if (!(e instanceof GameError)) throw e
       const key = `${s.phase}:${action.type}:${e.message}`
       errors.set(key, (errors.get(key) ?? 0) + 1)
-      if (['roll', 'endTurn', 'payDebt', 'rollFate', 'shopLeave', 'leaveLeaseSpot', 'stayInJail'].includes(action.type))
+      if (['roll', 'endTurn', 'payDebt', 'shopLeave', 'leaveLeaseSpot', 'stayInJail'].includes(action.type))
         throw new Error(`Stuck: ${e.message} in ${s.phase}`)
     }
     for (const p of game.state.players) {
       if (!p.bankrupt && p.cash < 0) throw new Error(`Negative cash ${p.name} ${p.cash} phase ${game.state.phase}`)
       if (p.pos < 0 || p.pos >= 40) throw new Error('bad pos')
       if (p.glued && p.inJail) throw new Error('glued in jail')
+      if (p.reversing && p.inJail) throw new Error('reversing in jail')
+      if (p.reversing) count('reversing')
     }
     for (const [i, h] of Object.entries(game.state.holdings)) {
       if (h.owner && !game.state.players.find((p) => p.id === h.owner && !p.bankrupt)) throw new Error(`Orphan holding ${i}`)

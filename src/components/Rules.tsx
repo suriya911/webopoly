@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import { BookOpen } from 'lucide-react'
 import { GROUPS, type TileKind } from '@shared/board.ts'
 import { CHANCE_TABLE, RANDOM_ROLL_TABLE, SHOP_ITEMS, UNO_TABLE, type FateEntry } from '@shared/cards.ts'
@@ -31,10 +32,10 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   )
 }
 
-function FateTable({ table, die = '2 dice' }: { table: Record<number, FateEntry>; die?: string }) {
+function FateTable({ table, die = 'Roll 2 dice' }: { table: Record<number, FateEntry>; die?: string }) {
   return (
     <div className="overflow-hidden rounded-lg border">
-      <div className="bg-white/5 px-2.5 py-1 text-[11px] tracking-wider text-muted-foreground uppercase">Roll {die}</div>
+      <div className="bg-white/5 px-2.5 py-1 text-[11px] tracking-wider text-muted-foreground uppercase">{die}</div>
       {Object.entries(table).map(([roll, e]) => (
         <div key={roll} className="flex gap-3 border-t px-2.5 py-1.5 text-sm">
           <span className="w-5 shrink-0 text-right font-mono font-bold text-amber-300">{roll}</span>
@@ -67,15 +68,20 @@ export function TileRules({ topic, settings = DEFAULT_SETTINGS }: { topic: RuleT
     case 'chance':
       return (
         <Section title="CHANCE (This Way / That Way / Another Way)">
-          <p>Roll 2 dice and follow the result.</p>
-          <FateTable table={CHANCE_TABLE} />
+          <p>
+            The dice total that brought you here picks the result (land with a 6 → result 6). There is no extra roll.
+          </p>
+          <FateTable table={CHANCE_TABLE} die="total that landed you here" />
         </Section>
       )
     case 'uno':
       return (
         <Section title="UNO ( ? )">
-          <p>Roll 2 dice and follow the result. “Next 2 turns” effects start on your next turn.</p>
-          <FateTable table={UNO_TABLE} />
+          <p>
+            The dice total that brought you here picks the result (land with a 6 → result 6). There is no extra roll. Half / 1.5x / double rent applies to your next 2
+            rent payments to other players.
+          </p>
+          <FateTable table={UNO_TABLE} die="total that landed you here" />
         </Section>
       )
     case 'tax':
@@ -90,7 +96,9 @@ export function TileRules({ topic, settings = DEFAULT_SETTINGS }: { topic: RuleT
     case 'shop':
       return (
         <Section title="Token Shop (spider emblem)">
-          <p>Land here to buy power cards. They can only be bought here.</p>
+          <p>
+            Land here to buy power cards. They can only be bought here, and only <b>one item per visit</b>. Come back again to buy more.
+          </p>
           <div className="overflow-hidden rounded-lg border">
             {SHOP_ITEMS.map((i, k) => (
               <div key={i.id} className="flex gap-3 border-t px-2.5 py-1.5 text-sm first:border-t-0">
@@ -105,18 +113,20 @@ export function TileRules({ topic, settings = DEFAULT_SETTINGS }: { topic: RuleT
               </div>
             ))}
           </div>
-          <FateTable table={RANDOM_ROLL_TABLE} die="1 die (Random roll)" />
+          <FateTable table={RANDOM_ROLL_TABLE} die="Random roll · 1 die" />
         </Section>
       )
     case 'jail':
       return (
         <Section title="Jail">
           <p>
-            Landing here, a Go to Jail result, or three doublets in a row locks you up for up to <b>{JAIL_MAX_TURNS} turns</b>. You get <b>no income</b> in jail (nobody pays you
-            rent).
+            Landing on Jail or a Go to Jail result locks you up for up to <b>{JAIL_MAX_TURNS} turns</b>. You get <b>no income</b> in jail (nobody pays you rent).
           </p>
           <p>
-            To get out: pay <b>{n(JAIL_BAIL)}</b>, roll a <b>doublet</b> ({JAIL_DOUBLET_TRIES} chances), or use a Jail card.
+            <b>Doublet:</b> on each turn in jail you get one roll for a doublet ({JAIL_DOUBLET_TRIES} chances in total). Roll a doublet and you move out <b>on that same turn</b>.
+          </p>
+          <p>
+            <b>Pay {n(JAIL_BAIL)}</b> or use a <b>Jail card</b> to get out: you roll and move on your <b>next</b> turn.
           </p>
           <p>
             When you get out you hold a <b>Criminal card</b>: you can’t buy or build on the first spot you land on.
@@ -127,19 +137,16 @@ export function TileRules({ topic, settings = DEFAULT_SETTINGS }: { topic: RuleT
       return (
         <Section title="Spider-Verse">
           <p>
-            Pay <b>{n(SPIDERVERSE_FEE)}</b> to use one power:
+            <b>Teleport power:</b> pay <b>{n(SPIDERVERSE_FEE)}</b> (optional) to jump to <b>your own card</b> or an <b>unowned card</b>. Special spots are not allowed. The spot
+            you land on works as usual.
           </p>
-          <ul className="list-disc space-y-0.5 pl-5">
-            <li>
-              <b>Teleport power</b>: jump to any spot on the board right now.
-            </li>
-            <li>
-              <b>Come reverse</b>: get a Reverse card; on a later turn, return to this Spider-Verse spot.
-            </li>
-            <li>
-              <b>Jail no cost</b>: get a Jail card.
-            </li>
-          </ul>
+          <p>
+            <b>Come reverse:</b> from your next turn you roll and move <b>backward</b> until you reach the Spider-Verse. You stop on it even if your roll is bigger (roll 8
+            but it is 6 steps away: you stop after 6). Then you get another roll right away to carry on forward.
+          </p>
+          <p>
+            <b>Jail no cost:</b> while you are coming back in reverse, Jail can’t lock you up. Spots you land on in reverse still apply (rent, buying, UNO, tax…).
+          </p>
         </Section>
       )
     case 'lease':
@@ -156,7 +163,8 @@ export function TileRules({ topic, settings = DEFAULT_SETTINGS }: { topic: RuleT
             </li>
           </ul>
           <p>
-            The renter collects the card’s rent while leasing, but gets no set bonus. After {LEASE_ROUNDS} rounds the card goes back to its owner or the unowned pile.
+            Rounds are counted at the Lease spot: every time the renter comes back round to the Lease spot, one round is paid. The renter collects the card’s rent while
+            leasing, but gets no set bonus. After {LEASE_ROUNDS} rounds the card goes back to its owner or the unowned pile.
           </p>
         </Section>
       )
@@ -167,7 +175,10 @@ export function TileRules({ topic, settings = DEFAULT_SETTINGS }: { topic: RuleT
           <p>
             <b>Set bonus</b>: hold {SET_BONUS_MIN_CARDS} or more cards of the same color set and each of them earns <b>+{n(SET_BONUS)}</b> rent.
           </p>
-          <p>Short on coins? Sell a building (half its cost) or a card (half its value) back to the bank.</p>
+          <p>
+            <b>Debt:</b> if you can’t pay, sell whole cards back to the bank. You get the card price plus everything you spent building on it; the card and its houses leave
+            your assets. If that still isn’t enough, you are bankrupt.
+          </p>
         </Section>
       )
   }
@@ -175,13 +186,46 @@ export function TileRules({ topic, settings = DEFAULT_SETTINGS }: { topic: RuleT
 
 const ORDER: RuleTopic[] = ['property', 'start', 'uno', 'chance', 'tax', 'shop', 'jail', 'spiderverse', 'lease']
 
+const TOPIC_LABELS: Record<RuleTopic, string> = {
+  property: 'Cards',
+  start: 'START',
+  uno: 'UNO ?',
+  chance: 'CHANCE',
+  tax: 'Tax',
+  shop: 'Token Shop',
+  jail: 'Jail',
+  spiderverse: 'Spider-Verse',
+  lease: 'Lease',
+}
+
+/** The always-available rule book: a chapter picker plus one chapter at a time. */
+export function RuleBook({ settings }: { settings: Settings }) {
+  const [topic, setTopic] = useState<RuleTopic | 'all'>('all')
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap gap-1">
+        {(['all', ...ORDER] as const).map((t) => (
+          <button
+            key={t}
+            onClick={() => setTopic(t)}
+            className={`rounded-full border px-2.5 py-0.5 text-xs transition ${topic === t ? 'border-primary bg-primary/20 text-white' : 'border-white/10 text-white/70 hover:bg-white/5'}`}
+          >
+            {t === 'all' ? 'All rules' : TOPIC_LABELS[t]}
+          </button>
+        ))}
+      </div>
+      {topic === 'all' ? <RulesContent settings={settings} /> : <TileRules topic={topic} settings={settings} />}
+    </div>
+  )
+}
+
 export function RulesContent({ settings = DEFAULT_SETTINGS }: { settings?: Settings }) {
   return (
     <div className="space-y-5">
       <Section title="Goal">
         <p>
           Roll 2 dice and move <b>anticlockwise</b>. Buy the Spider-Verse, collect rent and bankrupt your rivals. Everyone starts with <b>{n(settings.startingCash)}</b> WebCoins.
-          A doublet lets you roll again; three in a row sends you to jail.
+          A doublet does <b>not</b> give an extra roll (except escaping jail).
         </p>
       </Section>
       {ORDER.map((t) => (
@@ -189,7 +233,7 @@ export function RulesContent({ settings = DEFAULT_SETTINGS }: { settings?: Setti
       ))}
       <Section title="Power cards">
         <p>
-          <b>Sinister 6</b>: needs a “6” card. Activate it on your turn: +2,000 rent on each of your “6” cards for 2 rounds.
+          <b>Sinister 6</b>: needs a “6” card. Activate it on your turn: +2,000 rent on each of your “6” cards for 2 rounds, counted from where you activate it.
         </p>
         <p>
           <b>Web</b>: needs a “W” card. When an opponent lands on your place, glue them there for 3 more turns; they pay you rent each turn.

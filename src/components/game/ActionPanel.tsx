@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { ArrowRight, Dices, DoorOpen, Gavel, Hourglass, KeyRound, Rewind, ShoppingBag, Sparkles, Undo2, X } from 'lucide-react'
+import { ArrowRight, Dices, DoorOpen, Gavel, Hourglass, KeyRound, ShoppingBag, Sparkles, Undo2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { GROUPS, LEVEL_LABELS, PROPERTY_INDEXES, TILES } from '@shared/board.ts'
 import { SHOP_ITEMS } from '@shared/cards.ts'
@@ -13,7 +13,6 @@ import {
   holding,
   leaseAmount,
   propertiesOf,
-  sellBuildingValue,
   sellPropertyValue,
 } from '@shared/rules.ts'
 import {
@@ -55,7 +54,6 @@ const PHASE_WAIT: Record<GameState['phase'], string> = {
   roll: 'is about to roll',
   jail: 'is plotting a jailbreak',
   buy: 'is deciding whether to buy',
-  fate: 'is rolling for fate',
   choose: 'is making a choice',
   shop: 'is shopping at the Token Shop',
   spiderverse: 'is in the Spider-Verse',
@@ -160,9 +158,13 @@ export function ActionPanel({ state, me, animating }: { state: GameState; me: st
     case 'roll':
       return (
         <div className="flex flex-col items-center gap-2">
-          {state.canRollAgain && <Title className="text-amber-300">Doublet! Roll again</Title>}
+          {player.reversing && (
+            <div className="max-w-xs text-center text-xs text-fuchsia-300">
+              Spider-Verse trip: you move <b>backward</b> and stop on the Spider-Verse, then roll again to go forward.
+            </div>
+          )}
           <BigButton onClick={() => run({ type: 'roll' })} disabled={disabled} className="h-14 px-8 text-2xl">
-            <Dices className="size-6" /> Roll dice
+            <Dices className="size-6" /> {player.reversing ? 'Roll (reverse)' : 'Roll dice'}
           </BigButton>
           <QuickCards player={player} disabled={disabled} run={run} />
           <div className="text-[11px] text-white/60">Press Space · build or use power cards from My Stuff</div>
@@ -176,11 +178,16 @@ export function ActionPanel({ state, me, animating }: { state: GameState; me: st
           <Title className="text-sky-300">
             In jail · turn {player.jailTurns}/{JAIL_MAX_TURNS}
           </Title>
-          <div className="text-xs text-white/70">No income while you’re inside. Doublet chances left: {triesLeft}</div>
+          <div className="max-w-xs text-xs text-white/70">
+            No income while you’re inside. A doublet frees you and you move now ({triesLeft} of {JAIL_DOUBLET_TRIES} chances left, one per turn). Paying or a Jail card
+            frees you, but you move on your next turn.
+          </div>
           <div className="flex flex-wrap justify-center gap-2">
-            <BigButton onClick={() => run({ type: 'roll' })} disabled={disabled || triesLeft <= 0}>
-              <Dices /> Roll doublet
-            </BigButton>
+            {triesLeft > 0 && (
+              <BigButton onClick={() => run({ type: 'roll' })} disabled={disabled}>
+                <Dices /> Roll for a doublet
+              </BigButton>
+            )}
             <BigButton variant="secondary" onClick={() => run({ type: 'payBail' })} disabled={disabled || player.cash < JAIL_BAIL}>
               <KeyRound /> Pay <Coins value={JAIL_BAIL} className="font-sans text-sm" />
             </BigButton>
@@ -211,20 +218,7 @@ export function ActionPanel({ state, me, animating }: { state: GameState; me: st
               Pass
             </BigButton>
           </div>
-          {short && <div className="text-xs text-amber-300">Not enough coins. Sell a building or card from My Stuff first.</div>}
-        </div>
-      )
-    }
-
-    case 'fate': {
-      const uno = state.fateDeck === 'uno'
-      return (
-        <div className="flex flex-col items-center gap-2 text-center">
-          <Title className={uno ? 'text-fuchsia-300' : 'text-amber-200'}>{uno ? 'UNO ( ? )' : 'CHANCE · This Way / That Way'}</Title>
-          <div className="text-xs text-white/70">Roll 2 dice. The number decides your fate (click the spot to see the table).</div>
-          <BigButton onClick={() => run({ type: 'rollFate' })} disabled={disabled} className="h-13 px-7 text-xl">
-            <Dices /> Roll for fate
-          </BigButton>
+          {short && <div className="text-xs text-amber-300">Not enough coins to buy this one.</div>}
         </div>
       )
     }
@@ -253,34 +247,18 @@ export function ActionPanel({ state, me, animating }: { state: GameState; me: st
           <Title className="text-fuchsia-300">
             <Sparkles className="mr-1 inline size-5" /> Spider-Verse
           </Title>
-          <div className="text-xs text-white/70">
-            Pay <Coins value={SPIDERVERSE_FEE} /> for one power, or walk away.
+          <div className="text-sm text-white/80">
+            Pay <Coins value={SPIDERVERSE_FEE} /> to jump to <b>your own card</b> or an <b>unowned card</b>. From your next turn you come back in reverse until you stop on the
+            Spider-Verse, then roll again to go forward. No jail on the way back.
           </div>
-          <div className="grid w-full gap-1.5">
-            {(
-              [
-                ['teleport', 'Teleport power', 'Jump to any spot on the board now'],
-                ['reverse', 'Come reverse', 'Get a Reverse card: return to this spot on a later turn'],
-                ['jail', 'Jail no cost', 'Get a Jail card'],
-              ] as const
-            ).map(([power, label, hint]) => (
-              <Button
-                key={power}
-                variant="outline"
-                className="h-auto justify-start py-2 text-left"
-                disabled={disabled || player.cash < SPIDERVERSE_FEE}
-                onClick={() => run({ type: 'spiderverse', power })}
-              >
-                <span>
-                  <span className="block font-semibold">{label}</span>
-                  <span className="text-[11px] text-muted-foreground">{hint}</span>
-                </span>
-              </Button>
-            ))}
+          <div className="flex gap-2">
+            <BigButton onClick={() => run({ type: 'spiderverse', go: true })} disabled={disabled || player.cash < SPIDERVERSE_FEE}>
+              Jump
+            </BigButton>
+            <BigButton variant="secondary" onClick={() => run({ type: 'spiderverse', go: false })} disabled={disabled}>
+              Stay
+            </BigButton>
           </div>
-          <BigButton variant="secondary" onClick={() => run({ type: 'spiderverse', power: null })} disabled={disabled}>
-            Leave
-          </BigButton>
         </div>
       )
 
@@ -309,7 +287,7 @@ export function ActionPanel({ state, me, animating }: { state: GameState; me: st
 /** One-tap buttons for power cards that can be used before or after rolling. */
 function QuickCards({ player, disabled, run }: { player: Player; disabled: boolean; run: (a: GameAction) => void }) {
   const it = player.items
-  if (!it.startCard && !it.ultimateStartCard && !it.reverse && !it.sinister) return null
+  if (!it.startCard && !it.ultimateStartCard && !it.sinister) return null
   return (
     <div className="flex flex-wrap justify-center gap-1.5">
       {it.startCard > 0 && (
@@ -320,11 +298,6 @@ function QuickCards({ player, disabled, run }: { player: Player; disabled: boole
       {it.ultimateStartCard > 0 && (
         <Button size="sm" variant="outline" disabled={disabled} onClick={() => run({ type: 'useStartCard', ultimate: true })}>
           <Undo2 /> Ultimate Start card ({it.ultimateStartCard})
-        </Button>
-      )}
-      {it.reverse > 0 && (
-        <Button size="sm" variant="outline" disabled={disabled} onClick={() => run({ type: 'useReverse' })}>
-          <Rewind /> Reverse ({it.reverse})
         </Button>
       )}
       {it.sinister > 0 && (
@@ -365,7 +338,7 @@ function ShopPanel({ state, player, disabled, run }: { state: GameState; player:
         })}
       </div>
       <BigButton variant="secondary" onClick={() => run({ type: 'shopLeave' })} disabled={disabled}>
-        Leave shop
+        Leave without buying
       </BigButton>
     </div>
   )
@@ -496,19 +469,16 @@ function DebtPanel({ state, player, disabled, run }: { state: GameState; player:
       </div>
       {mine.length > 0 && (
         <div className="flex max-h-32 w-full flex-wrap justify-center gap-1 overflow-y-auto">
-          {mine.map((i) =>
-            holding(state, i).level > 0 ? (
-              <Button key={i} size="sm" variant="outline" disabled={disabled} onClick={() => run({ type: 'sellBuilding', tile: i })}>
-                Sell building on {TILES[i].name} <span className="font-mono text-emerald-300">+{sellBuildingValue(i).toLocaleString('en-US')}</span>
-              </Button>
-            ) : (
-              <Button key={i} size="sm" variant="outline" disabled={disabled} onClick={() => run({ type: 'sellProperty', tile: i })}>
-                Sell {TILES[i].name} <span className="font-mono text-emerald-300">+{sellPropertyValue(state, i).toLocaleString('en-US')}</span>
-              </Button>
-            ),
-          )}
+          {mine.map((i) => (
+            <Button key={i} size="sm" variant="outline" disabled={disabled} onClick={() => run({ type: 'sellProperty', tile: i })}>
+              Sell {TILES[i].name}
+              {holding(state, i).level > 0 ? ` + ${holding(state, i).level === 4 ? 'hotel' : `${holding(state, i).level}H`}` : ''}{' '}
+              <span className="font-mono text-emerald-300">+{sellPropertyValue(state, i).toLocaleString('en-US')}</span>
+            </Button>
+          ))}
         </div>
       )}
+      <div className="text-[11px] text-white/60">Selling returns the card to the bank for its price plus everything you spent building on it.</div>
       <div className="flex gap-2">
         <BigButton onClick={() => run({ type: 'payDebt' })} disabled={disabled || short > 0}>
           Pay debt

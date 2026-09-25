@@ -1,6 +1,6 @@
 import { randomInt } from 'node:crypto'
 import { nanoid } from 'nanoid'
-import { AVATARS, BOARD_SIZE, GROUPS, JAIL_INDEX, SPIDERVERSE_INDEX, TILES, type GroupId } from '../shared/board.ts'
+import { AVATARS, BOARD_SIZE, GROUPS, JAIL_INDEX, LEASE_INDEX, PROPERTY_INDEXES, SPIDERVERSE_INDEX, TILES, type GroupId } from '../shared/board.ts'
 import { CHANCE_TABLE, RANDOM_ROLL_TABLE, SHOP_ITEMS, UNO_TABLE, type FateEntry } from '../shared/cards.ts'
 import {
   JAIL_BAIL,
@@ -24,9 +24,9 @@ import {
   propertiesOf,
   rentCollector,
   rentFor,
-  sellBuildingValue,
   sellPropertyValue,
   startReward,
+  stepsBackTo,
   taxBill,
 } from '../shared/rules.ts'
 import {
@@ -95,12 +95,9 @@ export class Game {
       offerPending: [],
       dice: [1, 1],
       rollSeq: 0,
-      doubles: 0,
-      canRollAgain: false,
       holdings: {},
       debt: null,
       choice: null,
-      fateDeck: null,
       webPrompt: null,
       criminalTile: null,
       log: [],
@@ -136,6 +133,7 @@ export class Game {
       jailRolls: 0,
       criminal: false,
       glued: null,
+      reversing: false,
       ultimateStart: false,
       items: { ...EMPTY_ITEMS },
       effects: { ...NO_EFFECTS },
@@ -272,15 +270,17 @@ export class Game {
         this.expect('jail')
         if (me.cash < JAIL_BAIL) throw new GameError('Not enough coins to pay your way out')
         this.addCash(me, -JAIL_BAIL)
-        this.release(me, `${me.name} paid ${formatCoins(JAIL_BAIL)} to get out of jail`)
-        s.phase = 'roll'
+        this.release(me, `${me.name} paid ${formatCoins(JAIL_BAIL)} to get out of jail and moves next turn`)
+        this.hasRolled = true
+        s.phase = 'manage'
         return
       case 'useJailCard':
         this.expect('jail')
         if (me.items.jailCard < 1) throw new GameError('No jail card')
         me.items.jailCard--
-        this.release(me, `${me.name} used a Jail card to walk out`)
-        s.phase = 'roll'
+        this.release(me, `${me.name} used a Jail card to get out and moves next turn`)
+        this.hasRolled = true
+        s.phase = 'manage'
         return
       case 'stayInJail':
         this.expect('jail')
@@ -294,9 +294,6 @@ export class Game {
         this.expect('buy')
         this.log(`${me.name} passed on ${TILES[me.pos].name}`, 'money', me.id)
         return this.afterResolve()
-      case 'rollFate':
-        this.expect('fate')
-        return this.rollFate(me)
       case 'choose':
         this.expect('choose')
         return this.choose(me, action.tile)
@@ -305,11 +302,11 @@ export class Game {
         return this.shopBuy(me, action.item)
       case 'shopLeave':
         this.expect('shop')
-        this.log(`${me.name} leaves the Token Shop`, 'move', me.id)
+        this.log(`${me.name} leaves the Token Shop without buying`, 'move', me.id)
         return this.afterResolve()
       case 'spiderverse':
         this.expect('spiderverse')
-        return this.spiderverse(me, action.power)
+        return this.spiderverse(me, action.go)
       case 'leaseUnowned':
         this.expect('leaseSpot')
         return this.leaseUnowned(me, action.tile, action.level)
@@ -322,22 +319,12 @@ export class Game {
       case 'build':
         this.expectFree()
         return this.build(me, action.tile)
-      case 'sellBuilding':
-        this.expectFree(true)
-        return this.sellBuilding(me, action.tile)
       case 'sellProperty':
-        this.expectFree(true)
+        this.expect('debt')
         return this.sellProperty(me, action.tile)
       case 'useStartCard':
         this.expectFree()
         return this.useStartCard(me, action.ultimate)
-      case 'useReverse':
-        this.expectFree()
-        if (me.items.reverse < 1) throw new GameError('No Reverse card')
-        me.items.reverse--
-        this.log(`${me.name} reverses through the multiverse back to the Spider-Verse spot`, 'move', me.id)
-        this.teleport(me, SPIDERVERSE_INDEX)
-        return this.resolveLanding(me)
       case 'activateSinister':
         this.expectFree()
         if (me.items.sinister < 1) throw new GameError('No Sinister 6 card')
@@ -365,9 +352,8 @@ export class Game {
   }
 
   /** Free actions (build, power cards) are allowed while no decision is pending. */
-  private expectFree(allowDebt = false) {
-    const ok: Phase[] = allowDebt ? ['roll', 'manage', 'debt', 'buy', 'jail'] : ['roll', 'manage']
-    if (!ok.includes(this.state.phase)) throw new GameError('Finish your current decision first')
+  private expectFree() {
+    if (!['roll', 'manage'].includes(this.state.phase)) throw new GameError('Finish your current decision first')
   }
 
   // ---------------------------------------------------------------- turn flow
@@ -391,18 +377,14 @@ export class Game {
     const s = this.state
     const p = this.player(id)
     s.current = id
-    s.doubles = 0
-    s.canRollAgain = false
     s.debt = null
     s.choice = null
-    s.fateDeck = null
     s.webPrompt = null
     s.criminalTile = null
     this.afterDebt = null
     this.afterWeb = null
     this.dueLeases = []
     this.hasRolled = false
-    p.effects.rentPending = false
 
     if (p.glued) {
       const { tile } = p.glued
@@ -412,7 +394,7 @@ export class Game {
       this.hasRolled = true
       s.phase = 'manage'
       const collector = this.findActive(rentCollector(s, tile))
-      const rent = rentFor(s, tile, p.id)
+      const rent = this.rentDue(p, tile)
       if (!collector || rent === 0) {
         this.log(`${p.name} is stuck in the web at ${TILES[tile].name}, but no rent is due`, 'move', p.id)
         return
@@ -438,8 +420,6 @@ export class Game {
   private nextTurn() {
     const s = this.state
     if (s.status !== 'playing') return
-    const cur = s.players.find((p) => p.id === s.current)
-    if (cur && cur.effects.rentTurns > 0 && !cur.effects.rentPending) cur.effects.rentTurns--
     if (s.endsAt && Date.now() >= s.endsAt) {
       this.log('Time is up!', 'system')
       return this.finish()
@@ -462,27 +442,31 @@ export class Game {
     const me = this.player(s.current!)
     if (me.bankrupt || s.status !== 'playing') return
     s.choice = null
-    s.fateDeck = null
-    const again = (!this.hasRolled || s.canRollAgain) && !me.inJail && !me.glued
-    s.phase = again ? 'roll' : 'manage'
-    if (again && this.hasRolled) this.log(`Doublet! ${me.name} rolls again`, 'move', me.id)
+    s.phase = !this.hasRolled && !me.inJail && !me.glued ? 'roll' : 'manage'
   }
 
   private roll(me: Player): void {
-    const s = this.state
     const [a, b] = this.throwDice()
     this.hasRolled = true
-    const isDouble = a === b
-    this.log(`${me.name} rolled ${a} + ${b} = ${a + b}${isDouble ? ' (doublet)' : ''}`, 'move', me.id)
-    if (isDouble) {
-      s.doubles++
-      if (s.doubles >= 3) {
-        this.log(`Three doublets in a row! ${me.name} goes to jail`, 'jail', me.id)
-        return this.sendToJail(me)
-      }
-    }
-    s.canRollAgain = isDouble
+    if (me.reversing) return this.reverseStep(me, a + b)
+    this.log(`${me.name} rolled ${a} + ${b} = ${a + b}`, 'move', me.id)
     this.moveBy(me, a + b)
+    this.resolveLanding(me)
+  }
+
+  /** Spider-Verse trip: move backward, stopping on the Spider-Verse spot, then roll forward again. */
+  private reverseStep(me: Player, total: number): void {
+    const dist = stepsBackTo(me.pos, SPIDERVERSE_INDEX)
+    const steps = Math.min(total, dist)
+    this.moveBy(me, -steps)
+    if (steps === dist) {
+      me.reversing = false
+      this.hasRolled = false
+      this.log(`${me.name} rolled ${total}, reversed ${steps} and is back at the Spider-Verse. Roll again to go forward!`, 'move', me.id)
+      this.state.phase = 'roll'
+      return
+    }
+    this.log(`${me.name} rolled ${total} and reverses ${steps} spaces toward the Spider-Verse`, 'move', me.id)
     this.resolveLanding(me)
   }
 
@@ -494,7 +478,6 @@ export class Game {
     this.hasRolled = true
     if (a === b) {
       this.release(me, `${me.name} rolled a doublet (${a} + ${b}) and breaks out of jail!`)
-      s.canRollAgain = false
       this.moveBy(me, a + b)
       return this.resolveLanding(me)
     }
@@ -519,13 +502,15 @@ export class Game {
 
   private sendToJail(me: Player) {
     const s = this.state
+    if (me.reversing) {
+      this.log(`${me.name} is on a Spider-Verse trip: jail at no cost, no lock-up!`, 'jail', me.id)
+      return this.afterResolve()
+    }
     this.teleport(me, JAIL_INDEX)
     me.inJail = true
     me.jailTurns = 0
     me.jailRolls = 0
     me.glued = null
-    s.canRollAgain = false
-    s.doubles = 0
     this.hasRolled = true
     s.phase = 'manage'
   }
@@ -540,6 +525,7 @@ export class Game {
       pos = (pos + dir + BOARD_SIZE) % BOARD_SIZE
       path.push(pos)
       if (dir > 0 && pos === 0) this.paySalary(me)
+      if (dir > 0 && pos === LEASE_INDEX) this.leaseRound(me)
     }
     me.pos = pos
     if (dir > 0) this.travel(me, steps)
@@ -563,18 +549,19 @@ export class Game {
     if (moves.length > 12) moves.splice(0, moves.length - 12)
   }
 
-  /** Counts forward travel for "rounds": timed card effects and lease payments. */
+  /** Counts forward travel for timed card effects (2 rounds = 80 tiles from where they started). */
   private travel(me: Player, tiles: number) {
     const e = me.effects
     e.sinisterTiles = Math.max(0, e.sinisterTiles - tiles)
     e.setBoostTiles = Math.max(0, e.setBoostTiles - tiles)
+  }
+
+  /** Lease rounds are counted each time the renter comes back round to the Lease spot. */
+  private leaseRound(me: Player) {
     for (const i of leasedBy(this.state, me.id)) {
       const lease = this.state.holdings[i].lease!
-      lease.progress += tiles
-      while (lease.progress >= ROUND_TILES && lease.paymentsLeft > 0) {
-        lease.progress -= ROUND_TILES
-        this.dueLeases.push(i)
-      }
+      if (!lease.started) lease.started = true
+      else if (lease.paymentsLeft > 0) this.dueLeases.push(i)
     }
   }
 
@@ -639,7 +626,7 @@ export class Game {
           return this.afterResolve()
         }
         const collector = this.findActive(collectorId)
-        const rent = rentFor(s, tile.index, me.id)
+        const rent = this.rentDue(me, tile.index)
         if (!collector || rent === 0) {
           this.log(`${tile.name}: no rent due${collector?.inJail ? ` (${collector.name} is in jail, no income)` : ''}`, 'money', me.id)
           return this.afterResolve()
@@ -651,11 +638,9 @@ export class Game {
       }
       case 'chance':
       case 'uno':
-        s.fateDeck = tile.kind
-        s.phase = 'fate'
-        return
+        return this.fate(me, tile.kind)
       case 'spiderverse':
-        if (me.cash >= SPIDERVERSE_FEE) {
+        if (me.cash >= SPIDERVERSE_FEE && this.spiderverseTargets(me).length) {
           s.phase = 'spiderverse'
           return
         }
@@ -723,7 +708,7 @@ export class Game {
     if (use) {
       me.items.web--
       victim.glued = { tile: prompt.tile, turns: WEB_GLUE_TURNS }
-      if (victim.id === s.current) s.canRollAgain = false
+      victim.reversing = false
       this.log(`${me.name} webs ${victim.name} to ${TILES[prompt.tile].name} for ${WEB_GLUE_TURNS} more turns!`, 'card', me.id)
     } else {
       this.log(`${me.name} keeps their Web card for later`, 'card', me.id)
@@ -736,21 +721,29 @@ export class Game {
 
   // ---------------------------------------------------------------- fate (CHANCE / UNO)
 
-  private rollFate(me: Player) {
-    const s = this.state
-    const deck = s.fateDeck!
-    const [a, b] = this.throwDice()
-    const total = a + b
+  /** The dice total that brought the player here picks the result. No extra roll. */
+  private fate(me: Player, deck: 'chance' | 'uno') {
+    const total = this.state.dice[0] + this.state.dice[1]
     const entry = (deck === 'chance' ? CHANCE_TABLE : UNO_TABLE)[total]
-    s.fateDeck = null
     this.showCard(me, deck, total, entry)
     this.applyFate(me, entry)
+  }
+
+  /** Rent the payer owes, using up one of their half / 1.5x / double rent payments. */
+  private rentDue(payer: Player, tile: number): number {
+    const rent = rentFor(this.state, tile, payer.id)
+    const e = payer.effects
+    if (rent > 0 && e.rentPayments > 0) {
+      e.rentPayments--
+      this.log(`${payer.name} pays ${e.rentMult}x rent (${e.rentPayments} such payment${e.rentPayments === 1 ? '' : 's'} left)`, 'card', payer.id)
+    }
+    return rent
   }
 
   private showCard(me: Player, deck: 'chance' | 'uno' | 'random', roll: number, entry: FateEntry) {
     const label = deck === 'chance' ? 'CHANCE' : deck === 'uno' ? 'UNO' : 'Random roll'
     this.state.lastCard = { seq: ++this.eventSeq, playerId: me.id, deck, roll, title: entry.title, text: entry.text }
-    this.log(`${me.name} rolled ${roll} on ${label}: ${entry.title}. ${entry.text}`, 'card', me.id)
+    this.log(`${me.name} ${deck === 'random' ? 'rolled' : 'landed with'} ${roll} on ${label}: ${entry.title}. ${entry.text}`, 'card', me.id)
   }
 
   private applyFate(me: Player, entry: FateEntry): void {
@@ -785,8 +778,7 @@ export class Game {
         return done()
       case 'rentMult':
         me.effects.rentMult = e.mult
-        me.effects.rentTurns = e.turns
-        me.effects.rentPending = true
+        me.effects.rentPayments = e.payments
         return done()
       case 'jail':
         return this.sendToJail(me)
@@ -872,8 +864,9 @@ export class Game {
         this.teleport(me, tile)
         return this.afterResolve()
       case 'teleport':
-        this.log(`${me.name} teleports to ${name}`, 'move', me.id)
+        this.log(`${me.name} jumps through the Spider-Verse to ${name}. From next turn they come back in reverse`, 'move', me.id)
         this.teleport(me, tile)
+        me.reversing = true
         return this.resolveLanding(me)
     }
   }
@@ -891,17 +884,16 @@ export class Game {
     if (me.cash < item.price) throw new GameError('Not enough coins')
     this.addCash(me, -item.price)
     this.log(`${me.name} bought ${item.name} for ${formatCoins(item.price)}`, 'build', me.id)
-    if (id === 'ultimateStart') {
-      me.ultimateStart = true
-      return
-    }
+    // One item per visit
     if (id === 'random') {
       const roll = rollDie()
       const entry = RANDOM_ROLL_TABLE[roll]
       this.showCard(me, 'random', roll, entry)
       return this.applyFate(me, entry)
     }
-    me.items[id]++
+    if (id === 'ultimateStart') me.ultimateStart = true
+    else me.items[id]++
+    this.afterResolve()
   }
 
   private useStartCard(me: Player, ultimate: boolean) {
@@ -923,7 +915,7 @@ export class Game {
     if (rentCollector(s, tile) !== me.id) throw new GameError('Pick one of your places')
     me.items.symbiote--
     this.teleport(target, tile)
-    const rent = rentFor(s, tile, target.id)
+    const rent = this.rentDue(target, tile)
     this.log(`${me.name}'s Symbiote drags ${target.name} to ${TILES[tile].name}: rent ${formatCoins(rent)}`, 'card', me.id)
     target.glued = target.glued && target.glued.tile !== tile ? null : target.glued
     const resume = s.phase
@@ -933,26 +925,24 @@ export class Game {
 
   // ---------------------------------------------------------------- spider-verse
 
-  private spiderverse(me: Player, power: 'teleport' | 'reverse' | 'jail' | null) {
-    if (power === null) {
-      this.log(`${me.name} leaves the Spider-Verse alone`, 'move', me.id)
+  /** Spider-Verse jump targets: the player's own cards or unowned cards (no special spots). */
+  private spiderverseTargets(me: Player): number[] {
+    const s = this.state
+    return PROPERTY_INDEXES.filter((i) => {
+      const h = holding(s, i)
+      return i !== me.pos && (h.owner === me.id || (!h.owner && !h.lease))
+    })
+  }
+
+  private spiderverse(me: Player, go: boolean) {
+    if (!go) {
+      this.log(`${me.name} stays out of the Spider-Verse`, 'move', me.id)
       return this.afterResolve()
     }
     if (me.cash < SPIDERVERSE_FEE) throw new GameError('Not enough coins')
     this.addCash(me, -SPIDERVERSE_FEE)
-    if (power === 'teleport') {
-      this.log(`${me.name} pays ${formatCoins(SPIDERVERSE_FEE)} for Teleport Power`, 'card', me.id)
-      const tiles = TILES.map((t) => t.index).filter((i) => i !== SPIDERVERSE_INDEX)
-      return this.ask({ kind: 'teleport', tiles, prompt: 'Teleport Power: pick any spot on the board', optional: false })
-    }
-    if (power === 'reverse') {
-      me.items.reverse++
-      this.log(`${me.name} pays ${formatCoins(SPIDERVERSE_FEE)} for a Reverse card (return to the Spider-Verse spot on a later turn)`, 'card', me.id)
-    } else {
-      me.items.jailCard++
-      this.log(`${me.name} pays ${formatCoins(SPIDERVERSE_FEE)} for a Jail card (jail at no cost)`, 'card', me.id)
-    }
-    this.afterResolve()
+    this.log(`${me.name} pays ${formatCoins(SPIDERVERSE_FEE)} to travel the Spider-Verse`, 'card', me.id)
+    this.ask({ kind: 'teleport', tiles: this.spiderverseTargets(me), prompt: 'Pick your own card or an unowned card to jump to', optional: false })
   }
 
   // ---------------------------------------------------------------- leases
@@ -967,7 +957,7 @@ export class Game {
     s.holdings[tile] = {
       owner: null,
       level: 0,
-      lease: { lessee: me.id, lessor: null, level, amount: leaseAmount(tile, level), paymentsLeft: LEASE_ROUNDS, progress: 0 },
+      lease: { lessee: me.id, lessor: null, level, amount: leaseAmount(tile, level), paymentsLeft: LEASE_ROUNDS, started: me.pos === LEASE_INDEX },
     }
     this.log(`${me.name} leased ${card.name} (${levelName(level)}) from the bank for ${LEASE_ROUNDS} rounds at ${formatCoins(leaseAmount(tile, level))} per round`, 'trade', me.id)
   }
@@ -1013,7 +1003,7 @@ export class Game {
       level: h.level,
       amount: leaseAmount(offer.tile, h.level),
       paymentsLeft: LEASE_ROUNDS,
-      progress: 0,
+      started: lessee.pos === LEASE_INDEX,
     }
     this.log(
       `Lease signed: ${lessee.name} rents ${TILES[offer.tile].name} (${levelName(h.level)}) from ${this.player(offer.lessor).name} for ${LEASE_ROUNDS} rounds at ${formatCoins(h.lease.amount)} per round`,
@@ -1062,27 +1052,18 @@ export class Game {
     this.log(`${me.name} built ${h.level === MAX_LEVEL ? 'a hotel' : `house #${h.level}`} on ${TILES[tile].name} for ${formatCoins(cost)}`, 'build', me.id)
   }
 
-  private sellBuilding(me: Player, tile: number) {
-    const h = holding(this.state, tile)
-    if (h.owner !== me.id) throw new GameError('You do not own this')
-    if (h.lease) throw new GameError('Leased cards cannot be changed')
-    if (h.level < 1) throw new GameError('No building to sell')
-    const value = sellBuildingValue(tile)
-    h.level--
-    this.addCash(me, value)
-    this.log(`${me.name} sold a building on ${TILES[tile].name} for ${formatCoins(value)}`, 'money', me.id)
-  }
-
   private sellProperty(me: Player, tile: number) {
     const s = this.state
     const h = holding(s, tile)
     if (h.owner !== me.id) throw new GameError('You do not own this')
     if (h.lease) throw new GameError('Leased cards cannot be sold')
     const value = sellPropertyValue(s, tile)
+    const built = h.level
     delete s.holdings[tile]
     this.dropOffersFor([tile])
     this.addCash(me, value)
-    this.log(`${me.name} sold ${TILES[tile].name} back to the bank for ${formatCoins(value)}`, 'money', me.id)
+    const extra = built ? ` with ${built === MAX_LEVEL ? 'its hotel' : `${built} house${built > 1 ? 's' : ''}`}` : ''
+    this.log(`${me.name} sold ${TILES[tile].name}${extra} back to the bank for ${formatCoins(value)}`, 'money', me.id)
   }
 
   // ---------------------------------------------------------------- money
@@ -1123,14 +1104,13 @@ export class Game {
     this.goBankrupt(payer, { amount, to: to?.id ?? null, reason })
   }
 
-  /** Sells buildings, then properties, until the player has `target` cash. */
+  /** Sells whole cards (cheapest first) back to the bank until the player has `target` cash. */
   private liquidate(p: Player, target: number) {
     const s = this.state
-    const mine = () => propertiesOf(s, p.id).filter((i) => !holding(s, i).lease)
-    for (const i of mine()) {
-      while (p.cash < target && holding(s, i).level > 0) this.sellBuilding(p, i)
-    }
-    for (const i of mine()) {
+    const mine = propertiesOf(s, p.id)
+      .filter((i) => !holding(s, i).lease)
+      .sort((a, b) => sellPropertyValue(s, a) - sellPropertyValue(s, b))
+    for (const i of mine) {
       if (p.cash >= target) break
       this.sellProperty(p, i)
     }
@@ -1142,7 +1122,7 @@ export class Game {
     s.debt = debt
     s.phase = 'debt'
     this.afterDebt = then
-    this.log(`${me.name} is short ${formatCoins(debt.amount - me.cash)} for ${debt.reason}. Sell buildings or cards, or declare bankruptcy`, 'money', me.id)
+    this.log(`${me.name} is short ${formatCoins(debt.amount - me.cash)} for ${debt.reason}. Sell cards to the bank or declare bankruptcy`, 'money', me.id)
   }
 
   private payDebt(me: Player) {
@@ -1351,15 +1331,13 @@ export class Game {
         return
       case 'buy':
         return this.afterResolve()
-      case 'fate':
-        return this.rollFate(me)
       case 'choose':
         return this.choose(me, s.choice!.optional ? null : s.choice!.tiles[0])
       case 'shop':
       case 'leaseSpot':
         return this.afterResolve()
       case 'spiderverse':
-        return this.spiderverse(me, null)
+        return this.spiderverse(me, false)
       case 'manage':
         return this.nextTurn()
       case 'debt':

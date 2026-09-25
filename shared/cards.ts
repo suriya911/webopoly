@@ -1,14 +1,14 @@
 import { SHOP_INDEX, START_INDEX, TAX_INDEX, type GroupId } from './board.ts'
 import type { ShopItem } from './types.ts'
 
-// Landing on a CHANCE (This Way / That Way) or UNO (?) tile: roll two dice and apply the result.
+// Landing on a CHANCE (This Way / That Way) or UNO (?) tile: the dice total that brought you there picks the result.
 
 export type FateEffect =
   | { kind: 'goTo'; tile: number }
   | { kind: 'surrender' }
   | { kind: 'payEach'; amount: number }
   | { kind: 'collectEach'; amount: number }
-  | { kind: 'rentMult'; mult: number; turns: number }
+  | { kind: 'rentMult'; mult: number; payments: number }
   | { kind: 'jail' }
   | { kind: 'setBoost' }
   | { kind: 'pay'; amount: number }
@@ -32,9 +32,9 @@ export const CHANCE_TABLE: Record<number, FateEntry> = {
   4: { title: 'Surrender a card', text: 'Give one of your property cards back to the bank.', effect: { kind: 'surrender' } },
   5: { title: 'Go to START', text: 'Move to START and collect your reward.', effect: { kind: 'goTo', tile: START_INDEX } },
   6: { title: 'Give 5,000 to each player', text: 'Pay every other player 5,000.', effect: { kind: 'payEach', amount: 5000 } },
-  7: { title: 'Half rent', text: 'Pay only half rent for your next 2 turns.', effect: { kind: 'rentMult', mult: 0.5, turns: 2 } },
+  7: { title: 'Half rent', text: 'Pay only half rent on your next 2 rent payments to other players.', effect: { kind: 'rentMult', mult: 0.5, payments: 2 } },
   8: { title: 'Go to Jail', text: 'Go straight to jail.', effect: { kind: 'jail' } },
-  9: { title: 'Set bonus +2,000', text: 'Your set bonus increases by 2,000 for 2 rounds.', effect: { kind: 'setBoost' } },
+  9: { title: 'Set bonus +2,000', text: 'Your set bonus increases by 2,000 for 2 rounds, counted from this spot.', effect: { kind: 'setBoost' } },
   10: { title: '20,000 loss', text: 'Pay 20,000 to the bank.', effect: { kind: 'pay', amount: 20000 } },
   11: { title: 'Free house tax card', text: 'Your next Tax visit skips the house & hotel tax.', effect: { kind: 'item', item: 'taxHouseFree' } },
   12: { title: '100,000 loss', text: 'Pay 100,000 to the bank.', effect: { kind: 'pay', amount: 100000 } },
@@ -46,9 +46,9 @@ export const UNO_TABLE: Record<number, FateEntry> = {
   4: { title: 'Go to your place', text: 'Jump to one of your own properties.', effect: { kind: 'yourPlace' } },
   5: { title: 'No START reward', text: 'You will not get the START reward the next time.', effect: { kind: 'skipStart' } },
   6: { title: 'Collect 5,000 from each player', text: 'Every other player pays you 5,000.', effect: { kind: 'collectEach', amount: 5000 } },
-  7: { title: '1.5x rent', text: 'Pay 1.5x rent for your next 2 turns.', effect: { kind: 'rentMult', mult: 1.5, turns: 2 } },
+  7: { title: '1.5x rent', text: 'Pay 1.5x rent on your next 2 rent payments to other players.', effect: { kind: 'rentMult', mult: 1.5, payments: 2 } },
   8: { title: 'Free jail card', text: 'Get a jail card for free.', effect: { kind: 'item', item: 'jailCard' } },
-  9: { title: 'Double rent', text: 'Pay double rent for your next 2 turns.', effect: { kind: 'rentMult', mult: 2, turns: 2 } },
+  9: { title: 'Double rent', text: 'Pay double rent on your next 2 rent payments to other players.', effect: { kind: 'rentMult', mult: 2, payments: 2 } },
   10: { title: '20,000 profit', text: 'Collect 20,000 from the bank.', effect: { kind: 'collect', amount: 20000 } },
   11: { title: 'Destroy a building', text: 'Destroy one of your houses or your hotel.', effect: { kind: 'destroyOwn' } },
   12: { title: 'Get 100,000', text: 'Collect 100,000 from the bank.', effect: { kind: 'collect', amount: 100000 } },
@@ -86,7 +86,7 @@ export const SHOP_ITEMS: ShopEntry[] = [
     id: 'sinister',
     name: 'Sinister 6 card',
     price: 8000,
-    text: 'Activate on your turn: +2,000 rent on each of your “6” cards for 2 rounds.',
+    text: 'Activate on your turn: +2,000 rent on each of your “6” cards for 2 rounds, counted from where you activate it.',
     requiresGroups: ['6', 'G'],
   },
   {

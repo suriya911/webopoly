@@ -27,11 +27,12 @@ import { Coins, PlayerAvatar } from './game/bits'
 import { Board } from './game/Board'
 import { CenterStage } from './game/CenterStage'
 import { Chat, GameLog } from './game/LogChat'
+import { PlayerProfile } from './game/PlayerProfile'
 import { PlayersPanel } from './game/PlayersPanel'
 import { MyStuff, PropertyDialog } from './game/Properties'
 import { Trades } from './game/Trades'
 import { VoiceControls } from './game/VoiceControls'
-import { RulesDialog, TileRulesDialog } from './Rules'
+import { RuleBook, RulesDialog, TileRulesDialog } from './Rules'
 
 function useGameFeedback(state: GameState, me: string) {
   const prevCurrent = useRef(state.current)
@@ -90,10 +91,7 @@ function useShortcuts(state: GameState, me: string, animating: boolean) {
     const onKey = (e: KeyboardEvent) => {
       const el = e.target as HTMLElement
       if (el.closest('input,textarea,[role=dialog],[role=alertdialog]') || state.current !== me || animating) return
-      if (e.code === 'Space' && state.phase === 'fate') {
-        e.preventDefault()
-        act({ type: 'rollFate' }).catch((err: Error) => toast.error(err.message))
-      } else if (e.code === 'Space' && (state.phase === 'roll' || state.phase === 'jail')) {
+      if (e.code === 'Space' && (state.phase === 'roll' || state.phase === 'jail')) {
         e.preventDefault()
         act({ type: 'roll' }).catch((err: Error) => toast.error(err.message))
       } else if (e.key === 'Enter' && state.phase === 'manage') {
@@ -243,6 +241,7 @@ export function GameScreen({ state, me }: { state: GameState; me: string }) {
                 Chat {unread > 0 && <Badge className="ml-1 h-4 min-w-4 px-1 text-[10px]">{unread}</Badge>}
               </TabsTrigger>
               <TabsTrigger value="mine">My Stuff</TabsTrigger>
+              <TabsTrigger value="rules">Rules</TabsTrigger>
               <TabsTrigger value="trade">
                 Trade {incoming > 0 && <Badge className="ml-1 h-4 min-w-4 px-1 text-[10px]">{incoming}</Badge>}
               </TabsTrigger>
@@ -256,6 +255,9 @@ export function GameScreen({ state, me }: { state: GameState; me: string }) {
             <TabsContent value="mine" className="min-h-0 flex-1 overflow-y-auto pr-1">
               <MyStuff state={state} me={me} />
             </TabsContent>
+            <TabsContent value="rules" className="min-h-0 flex-1 overflow-y-auto pr-1">
+              <RuleBook settings={state.settings} />
+            </TabsContent>
             <TabsContent value="trade" className="min-h-0 flex-1 overflow-y-auto pr-1">
               <Trades state={state} me={me} />
             </TabsContent>
@@ -265,6 +267,7 @@ export function GameScreen({ state, me }: { state: GameState; me: string }) {
 
       <PropertyDialog state={state} me={me} />
       <TileRulesDialog settings={state.settings} />
+      <PlayerProfile state={state} />
       <WinnerDialog state={state} />
     </div>
   )
