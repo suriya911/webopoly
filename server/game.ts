@@ -3,9 +3,13 @@ import { nanoid } from 'nanoid'
 import { AVATARS, BOARD_SIZE, JAIL_INDEX, PROPERTY_INDEXES, SIGNPOSTS, TILES } from '../shared/board.ts'
 import { CHANCE_CARDS, type ChanceCard } from '../shared/cards.ts'
 import {
+  JAIL_BAIL,
   LANDING_ON_START_BONUS,
   LEASE_OFFICE_GRANT,
   MAX_LEVEL,
+  STARTING_CASH_MAX,
+  STARTING_CASH_MIN,
+  STARTING_CASH_STEP,
   PORTAL_FEE,
   SIGNPOST_SWING_BONUS,
   buildBlocker,
@@ -151,14 +155,14 @@ export class Game {
     const s = this.state
     if (id !== s.hostId) throw new GameError('Only the host can change settings')
     if (s.status !== 'lobby') throw new GameError('Game already started')
-    const next = { ...s.settings, ...patch }
-    next.startingCash = clamp(next.startingCash, 20_000, 500_000)
+    const next = { ...s.settings }
+    for (const key of Object.keys(s.settings) as (keyof Settings)[]) {
+      if (patch[key] !== undefined) (next as Record<string, unknown>)[key] = patch[key]
+    }
+    next.startingCash = clamp(Math.round(next.startingCash / STARTING_CASH_STEP) * STARTING_CASH_STEP, STARTING_CASH_MIN, STARTING_CASH_MAX)
     next.salary = clamp(next.salary, 0, 50_000)
-    next.buildCostPct = clamp(next.buildCostPct, 25, 200)
-    next.bail = clamp(next.bail, 0, 50_000)
     next.turnSeconds = clamp(next.turnSeconds, 0, 300)
     next.timeLimitMinutes = clamp(next.timeLimitMinutes, 0, 240)
-    if (![2, 3, 4, 5].includes(next.buildRequirement)) next.buildRequirement = 3
     s.settings = next
   }
 
@@ -227,9 +231,9 @@ export class Game {
         return this.roll()
       case 'payBail':
         this.expect('jail')
-        if (me.cash < s.settings.bail) throw new GameError('Not enough coins for bail')
-        this.pay(me, s.settings.bail, { toPot: true })
-        this.release(me, `${me.name} paid ${formatCoins(s.settings.bail)} bail`)
+        if (me.cash < JAIL_BAIL) throw new GameError('Not enough coins for bail')
+        this.pay(me, JAIL_BAIL, { toPot: true })
+        this.release(me, `${me.name} paid ${formatCoins(JAIL_BAIL)} bail`)
         s.phase = 'roll'
         break
       case 'useJailCard':
@@ -353,13 +357,13 @@ export class Game {
     }
     me.jailTurns++
     if (me.jailTurns >= 3) {
-      this.log(`${me.name} failed a third escape (${a} + ${b}) and must pay ${formatCoins(s.settings.bail)} bail`, 'jail', me.id)
+      this.log(`${me.name} failed a third escape (${a} + ${b}) and must pay ${formatCoins(JAIL_BAIL)} bail`, 'jail', me.id)
       const move = () => {
         this.release(me, `${me.name} is released from The Raft`)
         this.moveBy(me, a + b)
         this.resolveLanding(me)
       }
-      if (this.charge(me, s.settings.bail, { toPot: true }, 'Raft bail', move)) move()
+      if (this.charge(me, JAIL_BAIL, { toPot: true }, 'Raft bail', move)) move()
       return
     }
     this.log(`${me.name} rolled ${a} + ${b}, no doubles. Stuck in The Raft (${me.jailTurns}/3)`, 'jail', me.id)

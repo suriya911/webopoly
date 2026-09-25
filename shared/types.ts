@@ -1,11 +1,6 @@
 export interface Settings {
   startingCash: number
   salary: number
-  /** How many properties of a 5-card group you must own before you can build there. */
-  buildRequirement: 2 | 3 | 4 | 5
-  /** Percent of the printed BUILD cost charged per level. */
-  buildCostPct: number
-  bail: number
   /** Seconds per decision; 0 disables the turn timer. */
   turnSeconds: number
   /** Minutes before the game ends and the richest player wins; 0 = play to the last one standing. */
@@ -17,9 +12,6 @@ export interface Settings {
 export const DEFAULT_SETTINGS: Settings = {
   startingCash: 100_000,
   salary: 10_000,
-  buildRequirement: 3,
-  buildCostPct: 100,
-  bail: 5_000,
   turnSeconds: 90,
   timeLimitMinutes: 0,
   stashPot: true,

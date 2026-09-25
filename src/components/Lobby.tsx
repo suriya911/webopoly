@@ -1,17 +1,20 @@
 import { motion } from 'motion/react'
+import { useEffect, useState } from 'react'
 import { Check, Copy, Crown, LogOut, Play, UserX } from 'lucide-react'
 import { toast } from 'sonner'
+import { STARTING_CASH_MAX, STARTING_CASH_MIN, STARTING_CASH_STEP } from '@shared/rules.ts'
 import type { GameState, Settings } from '@shared/types.ts'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+import { Slider } from '@/components/ui/slider'
 import { Switch } from '@/components/ui/switch'
 import { emit } from '@/lib/socket'
 import { sfx } from '@/lib/sfx'
 import { useStore } from '@/store'
-import { PlayerAvatar } from './game/bits'
+import { Coins, PlayerAvatar } from './game/bits'
 import { Chat } from './game/LogChat'
 import { VoiceControls } from './game/VoiceControls'
 import { AvatarPicker } from './Home'
@@ -22,34 +25,10 @@ const call = (event: string, payload?: unknown) => emit(event, payload).catch((e
 type Opt = { label: string; value: number }
 const SETTING_FIELDS: { key: keyof Settings; label: string; hint: string; options: Opt[] }[] = [
   {
-    key: 'startingCash',
-    label: 'Starting coins',
-    hint: 'WebCoins each player begins with',
-    options: [60_000, 80_000, 100_000, 150_000, 200_000].map((v) => ({ label: v.toLocaleString('en-US'), value: v })),
-  },
-  {
     key: 'salary',
     label: 'START salary',
     hint: 'Collected every time you pass START',
     options: [5_000, 10_000, 15_000, 20_000].map((v) => ({ label: v.toLocaleString('en-US'), value: v })),
-  },
-  {
-    key: 'buildRequirement',
-    label: 'Build after owning',
-    hint: 'Properties of a group needed to build there',
-    options: [2, 3, 4, 5].map((v) => ({ label: `${v} of 5`, value: v })),
-  },
-  {
-    key: 'buildCostPct',
-    label: 'Build cost',
-    hint: 'Of the printed BUILD value, per level',
-    options: [50, 75, 100].map((v) => ({ label: `${v}%`, value: v })),
-  },
-  {
-    key: 'bail',
-    label: 'Raft bail',
-    hint: 'Cost to leave jail early',
-    options: [2_000, 5_000, 8_000].map((v) => ({ label: v.toLocaleString('en-US'), value: v })),
   },
   {
     key: 'turnSeconds',
@@ -75,6 +54,37 @@ const SETTING_FIELDS: { key: keyof Settings; label: string; hint: string; option
     ],
   },
 ]
+
+function StartingCashSlider({ value, disabled }: { value: number; disabled: boolean }) {
+  // Local value while dragging; the server is only told when the thumb is released.
+  const [draft, setDraft] = useState(value)
+  useEffect(() => setDraft(value), [value])
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <div className="text-sm font-medium">Starting coins</div>
+          <div className="text-xs text-muted-foreground">WebCoins each player begins with</div>
+        </div>
+        <Coins value={draft} className="text-base font-semibold text-amber-200" />
+      </div>
+      <Slider
+        min={STARTING_CASH_MIN}
+        max={STARTING_CASH_MAX}
+        step={STARTING_CASH_STEP}
+        value={[draft]}
+        disabled={disabled}
+        onValueChange={([v]) => setDraft(v)}
+        onValueCommit={([v]) => call('lobby:settings', { startingCash: v })}
+        aria-label="Starting coins"
+      />
+      <div className="flex justify-between text-[10px] text-muted-foreground">
+        <span>{STARTING_CASH_MIN.toLocaleString('en-US')}</span>
+        <span>{STARTING_CASH_MAX.toLocaleString('en-US')}</span>
+      </div>
+    </div>
+  )
+}
 
 export function Lobby({ state, me }: { state: GameState; me: string }) {
   const leave = useStore((s) => s.leave)
@@ -192,6 +202,7 @@ export function Lobby({ state, me }: { state: GameState; me: string }) {
               <CardDescription>{isHost ? 'You are the host. Tune the game.' : 'Only the host can change these.'}</CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
+              <StartingCashSlider value={state.settings.startingCash} disabled={!isHost} />
               {SETTING_FIELDS.map((f) => (
                 <div key={f.key} className="flex items-center justify-between gap-3">
                   <div>

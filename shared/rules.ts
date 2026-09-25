@@ -2,6 +2,11 @@ import { TILES, groupMembers, type GroupId } from './board.ts'
 import type { GameState, Holding } from './types.ts'
 
 export const MAX_LEVEL = 4
+/** Placeholder until the new jail rules are defined. */
+export const JAIL_BAIL = 5_000
+export const STARTING_CASH_MIN = 50_000
+export const STARTING_CASH_MAX = 300_000
+export const STARTING_CASH_STEP = 10_000
 export const UNLEASE_INTEREST = 0.1
 export const LANDING_ON_START_BONUS = 5_000
 export const LEASE_OFFICE_GRANT = 2_000
@@ -33,10 +38,8 @@ export function rentFor(state: GameState, tile: number): number {
   return card.rent[h.level]
 }
 
-export function buildCost(state: GameState, tile: number): number {
-  const card = TILES[tile].card
-  if (!card) return 0
-  return roundTo100((card.build * state.settings.buildCostPct) / 100)
+export function buildCost(_state: GameState, tile: number): number {
+  return TILES[tile].card?.build ?? 0
 }
 
 export function leasePayout(state: GameState, tile: number): number {
@@ -57,8 +60,6 @@ export function buildBlocker(state: GameState, playerId: string, tile: number): 
   if (h.owner !== playerId) return 'You do not own this'
   if (h.leased) return 'Leased properties cannot be built on'
   if (h.level >= MAX_LEVEL) return 'Already a Web HQ'
-  const need = state.settings.buildRequirement
-  if (ownedInGroup(state, playerId, card.group) < need) return `Own ${need} of the ${groupMembers(card.group).length} in this group to build`
   const player = state.players.find((p) => p.id === playerId)
   if (!player || player.cash < buildCost(state, tile)) return 'Not enough coins'
   return null

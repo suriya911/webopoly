@@ -15,7 +15,7 @@ for (let g = 0; g < games; g++) {
   const n = 2 + (g % 5)
   for (let i = 0; i < n; i++) game.addPlayer(`Bot${i}`)
   const host = game.state.hostId
-  game.updateSettings(host, { turnSeconds: 0, buildRequirement: pick([2, 3]) as 2 | 3, timeLimitMinutes: 0 })
+  game.updateSettings(host, { turnSeconds: 0, timeLimitMinutes: 0 })
   game.start(host)
   let steps = 0
   while (game.state.status === 'playing' && steps < 20000) {

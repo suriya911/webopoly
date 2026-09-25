@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, Dices, DoorOpen, Gavel, Hourglass, KeyRound, Shu
 import { toast } from 'sonner'
 import { TILES } from '@shared/board.ts'
 import type { GameAction, GameState } from '@shared/types.ts'
-import { PORTAL_FEE, holding, leasePayout, propertiesOf } from '@shared/rules.ts'
+import { JAIL_BAIL, PORTAL_FEE, holding, leasePayout, propertiesOf } from '@shared/rules.ts'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -98,8 +98,8 @@ export function ActionPanel({ state, me, animating }: { state: GameState; me: st
             <BigButton onClick={() => run({ type: 'roll' })} disabled={disabled}>
               <Dices /> Roll doubles
             </BigButton>
-            <BigButton variant="secondary" onClick={() => run({ type: 'payBail' })} disabled={disabled || player.cash < state.settings.bail}>
-              <KeyRound /> Bail <Coins value={state.settings.bail} className="font-sans text-sm" />
+            <BigButton variant="secondary" onClick={() => run({ type: 'payBail' })} disabled={disabled || player.cash < JAIL_BAIL}>
+              <KeyRound /> Bail <Coins value={JAIL_BAIL} className="font-sans text-sm" />
             </BigButton>
             {player.jailCards > 0 && (
               <BigButton variant="secondary" onClick={() => run({ type: 'useJailCard' })} disabled={disabled}>

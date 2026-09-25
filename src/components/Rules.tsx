@@ -1,5 +1,6 @@
 import { BookOpen } from 'lucide-react'
 import { GROUPS } from '@shared/board.ts'
+import { JAIL_BAIL } from '@shared/rules.ts'
 import { DEFAULT_SETTINGS, type Settings } from '@shared/types.ts'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
@@ -38,8 +39,7 @@ export function RulesContent({ settings = DEFAULT_SETTINGS }: { settings?: Setti
           level is a <b>Web HQ</b> (the H row).
         </p>
         <p>
-          <b>Building</b>: own at least <b>{settings.buildRequirement} of 5</b> in a group, then build one level at a time on your turn for the card’s BUILD cost
-          {settings.buildCostPct !== 100 ? ` (x${settings.buildCostPct}%)` : ''}.
+          <b>Building</b>: as soon as you own a property you can build on it, one level at a time on your turn, for the card’s BUILD cost.
         </p>
         <div className="flex flex-wrap gap-1.5 pt-1">
           {Object.values(GROUPS).map((g) => (
@@ -67,7 +67,7 @@ export function RulesContent({ settings = DEFAULT_SETTINGS }: { settings?: Setti
           <b>City Tax</b>: pay 10% of your net worth (min 2,000, max 15,000).
         </p>
         <p>
-          <b>The Raft (Jail)</b>: landing on it, a Rhino card, or three doubles locks you up. On your turn roll for doubles (up to 3 tries), pay <b>{n(settings.bail)}</b> bail,
+          <b>The Raft (Jail)</b>: landing on it, a Rhino card, or three doubles locks you up. On your turn roll for doubles (up to 3 tries), pay <b>{n(JAIL_BAIL)}</b> bail,
           or use a pardon card. After the third miss you pay bail and move. You still collect rent while locked up.
         </p>
         <p>

@@ -38,16 +38,16 @@ npx tsx scripts/simulate.ts 300   # bots play 300 games to smoke-test the rules 
 
 | | |
 |---|---|
-| Start | 100,000 WebCoins each (host can change it). Passing START pays 10,000, and landing exactly on it pays 5,000 more. |
+| Start | 100,000 WebCoins each (host slider: 50,000–300,000). Passing START pays 10,000, and landing exactly on it pays 5,000 more. |
 | Dice | 2 dice. Doubles roll again. Three doubles in a row sends you to The Raft. |
 | Properties | 30 cards in 6 groups of 5 (A Amazing Spiders, S Symbiotes, 6 Sinister Six, G Sinister Syndicate, V Villains Inc., W Spider-Verse). You can buy one when you land on it. |
 | Rent | Land rent comes from the card and is **doubled if the owner holds all 5** of the group. 1H/2H/3H are houses, and H is the Web HQ. |
-| Build | Own **3 of 5** in a group (host setting), then pay the card's BUILD cost per level. |
+| Build | As soon as you own a property, pay the card's BUILD cost per level (up to 3 houses, then a Web HQ). |
 | Lease (L column) | The bank pays the lease value for the property's current level. While leased it earns no rent and can't be built on. Buying it back costs +10%. |
 | **?** Spider-Sense | Draw a card: Bugle photo money, J.J.J. lawsuit, Rhino (jail), pardon card, Aunt May's wheatcakes, and more. |
 | **This Way / That Way / Another Way** | Pick one: 3 spaces forward, 3 spaces back, or web-swing to the other signpost for +2,000. |
 | **Tax** | 10% of your net worth (minimum 2,000, maximum 15,000). |
-| **Jail (The Raft)** | You're jailed by landing on it, drawing a Rhino card, or rolling 3 doubles. To get out, roll doubles (3 tries), pay 5,000 bail, or use a pardon. You still collect rent while jailed. |
+| **Jail (The Raft)** | You're jailed by landing on it, drawing a Rhino card, or rolling 3 doubles. To get out, roll doubles (3 tries), pay 5,000 bail, or use a pardon. You still collect rent while jailed. *(New jail rules coming.)* |
 | Spider-Sense Stash (corner) | Taxes, fines and bail pile up here, and whoever lands on it takes the pot. |
 | Lease Office (corner) | A 2,000 grant, plus buy-backs without interest for the rest of that turn. |
 | Multiverse Portal | Pay 2,000 to jump to any property. |

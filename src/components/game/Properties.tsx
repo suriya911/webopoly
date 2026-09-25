@@ -89,7 +89,7 @@ export function PropertyDialog({ state, me }: { state: GameState; me: string }) 
             </DialogHeader>
             <PropertyCard tile={tile} state={state} />
             <p className="text-xs text-muted-foreground">
-              Build after owning {state.settings.buildRequirement} of the {groupMembers(t.card.group).length} {GROUPS[t.card.group].name}. Owning all 5 doubles land rent.
+              Build as soon as you own it. Owning all {groupMembers(t.card.group).length} {GROUPS[t.card.group].name} doubles land rent.
               Leasing pays the Lease column now; buying back costs +10%.
             </p>
             <PropertyActions state={state} me={me} tile={tile} size="default" />
