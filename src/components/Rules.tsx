@@ -171,7 +171,7 @@ export function TileRules({ topic, settings = DEFAULT_SETTINGS }: { topic: RuleT
     case 'property':
       return (
         <Section title="Property cards">
-          <p>Land on an unowned card to buy it. Build a house (up to 3, then a hotel) on a card you own only while your token is standing on it, on your turn, for the card’s BUILD cost.</p>
+          <p>Land on an unowned card to buy it. Build a house (up to 3, then a hotel) only when you land on your own card: <b>one upgrade per visit</b>, for the card’s BUILD cost.</p>
           <p>
             <b>Set bonus</b>: hold {SET_BONUS_MIN_CARDS} or more cards of the same color set and each of them earns <b>+{n(SET_BONUS)}</b> rent.
           </p>

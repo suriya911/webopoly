@@ -213,6 +213,8 @@ export interface GameState {
   webPrompt: { owner: string; victim: string; tile: number } | null
   /** Tile where a freshly released prisoner may not buy or build this turn */
   criminalTile: number | null
+  /** Owned card the current player landed on this turn: one upgrade allowed there. */
+  buildTile: number | null
   log: LogEntry[]
   lastCard: CardEvent | null
   moves: MoveEvent[]

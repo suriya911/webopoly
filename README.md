@@ -41,7 +41,7 @@ Everything below is also in the game: the **Rules** tab in the sidebar (the rule
 
 - **Direction:** anticlockwise; from START you go down the left side first. Roll 2 dice. **Doublets never give an extra roll** (except in jail, below).
 - **START:** 5,000 each time you cross or land on it. **Ultimate START** (100,000; offered to every player before the first roll, and sold in the Token Shop) raises that to 10,000.
-- **Cards:** you can only build on a card you own while your token is standing on it (3 houses, then a hotel). **Set bonus:** hold 3+ cards of one color and each earns +2,000 rent.
+- **Cards:** you can build only when you land on your own card, one upgrade per visit (3 houses, then a hotel). **Set bonus:** hold 3+ cards of one color and each earns +2,000 rent.
 - **UNO (?) / CHANCE (This Way / That Way):** the dice total that brought you there picks the result (land with a 6 → result 6). There is no extra roll.
   - UNO results: tax-for-card free · Token Shop ban · go to your place · no START reward once · collect 5,000 from each player · pay 1.5x rent · free Jail card · pay double rent · +20,000 · destroy one of your buildings · +100,000.
   - CHANCE results: go to Tax · go to the Token Shop · surrender a card · go to START · give 5,000 to each player · pay half rent · go to jail · set bonus +2,000 for 2 rounds (counted from that spot) · lose 20,000 · free house-tax card · lose 100,000.

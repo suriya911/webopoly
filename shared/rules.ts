@@ -96,7 +96,8 @@ export function buildBlocker(state: GameState, playerId: string, tile: number): 
   if (state.criminalTile === tile && state.current === playerId) return 'Criminal card: you cannot build here this turn'
   const player = findPlayer(state, playerId)
   if (!player) return 'Player not found'
-  if (player.pos !== tile) return 'You can only build on the card you are standing on'
+  if (state.current !== playerId || state.buildTile !== tile)
+    return 'Build only when you land on your own card: one upgrade per visit'
   if (player.cash < buildCost(tile)) return 'Not enough coins'
   return null
 }

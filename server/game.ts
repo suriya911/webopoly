@@ -100,6 +100,7 @@ export class Game {
       choice: null,
       webPrompt: null,
       criminalTile: null,
+      buildTile: null,
       log: [],
       lastCard: null,
       moves: [],
@@ -381,6 +382,7 @@ export class Game {
     s.choice = null
     s.webPrompt = null
     s.criminalTile = null
+    s.buildTile = null
     this.afterDebt = null
     this.afterWeb = null
     this.dueLeases = []
@@ -622,6 +624,7 @@ export class Game {
         }
         const collectorId = rentCollector(s, tile.index)
         if (collectorId === me.id) {
+          if (h.owner === me.id && !h.lease && h.level < MAX_LEVEL) s.buildTile = tile.index
           this.log(`${me.name} is home at ${tile.name}`, 'move', me.id)
           return this.afterResolve()
         }
@@ -1049,6 +1052,7 @@ export class Game {
     this.addCash(me, -cost)
     const h = s.holdings[tile]
     h.level++
+    s.buildTile = null
     this.log(`${me.name} built ${h.level === MAX_LEVEL ? 'a hotel' : `house #${h.level}`} on ${TILES[tile].name} for ${formatCoins(cost)}`, 'build', me.id)
   }
 

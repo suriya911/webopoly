@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { ArrowRight, Dices, DoorOpen, Gavel, Hourglass, KeyRound, ShoppingBag, Sparkles, Undo2, X } from 'lucide-react'
+import { ArrowRight, Building2, Dices, DoorOpen, Gavel, Hourglass, KeyRound, ShoppingBag, Sparkles, Undo2, X } from 'lucide-react'
 import { toast } from 'sonner'
 import { GROUPS, LEVEL_LABELS, PROPERTY_INDEXES, TILES } from '@shared/board.ts'
 import { SHOP_ITEMS } from '@shared/cards.ts'
 import type { GameAction, GameState, Player } from '@shared/types.ts'
 import {
   JAIL_BAIL,
+  buildBlocker,
+  buildCost,
   JAIL_DOUBLET_TRIES,
   JAIL_MAX_TURNS,
   LEASE_ROUNDS,
@@ -265,9 +267,16 @@ export function ActionPanel({ state, me, animating }: { state: GameState; me: st
     case 'leaseSpot':
       return <LeasePanel state={state} player={player} disabled={disabled} run={run} />
 
-    case 'manage':
+    case 'manage': {
+      const bt = state.buildTile
+      const blocker = bt !== null ? buildBlocker(state, me, bt) : null
       return (
         <div className="flex flex-col items-center gap-2">
+          {bt !== null && (
+            <Button variant="outline" disabled={disabled || !!blocker} onClick={() => run({ type: 'build', tile: bt })} title={blocker ?? undefined}>
+              <Building2 /> Build {holding(state, bt).level === 3 ? 'hotel' : 'a house'} on {TILES[bt].name} · <Coins value={buildCost(bt)} />
+            </Button>
+          )}
           <BigButton onClick={() => run({ type: 'endTurn' })} disabled={disabled} className="h-12 px-7 text-xl">
             End turn <ArrowRight className="size-5" />
           </BigButton>
@@ -275,6 +284,7 @@ export function ActionPanel({ state, me, animating }: { state: GameState; me: st
           <div className="text-[11px] text-white/60">Press Enter · build, trade or use power cards before ending</div>
         </div>
       )
+    }
 
     case 'debt':
       return <DebtPanel state={state} player={player} disabled={disabled} run={run} />
