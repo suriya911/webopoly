@@ -94,7 +94,7 @@ export function PropertyDialog({ state, me }: { state: GameState; me: string }) 
             <PropertyCard tile={tile} state={state} />
             {h?.lease && <Badge variant="secondary">{leaseLine(state, tile)}</Badge>}
             <p className="text-xs text-muted-foreground">
-              Build on any card you own. Holding {SET_BONUS_MIN_CARDS}+ of the {groupMembers(t.card.group).length} {GROUPS[t.card.group].name} gives each +
+              You can only build here while your token stands on it. Holding {SET_BONUS_MIN_CARDS}+ of the {groupMembers(t.card.group).length} {GROUPS[t.card.group].name} gives each +
               {SET_BONUS.toLocaleString('en-US')} rent.
             </p>
             <PropertyActions state={state} me={me} tile={tile} size="default" />

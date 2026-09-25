@@ -124,5 +124,17 @@ check('Lease rounds are paid each time the renter comes back to the Lease spot',
   assert.deepEqual(g.dueLeases, [tile])
 })
 
+check('Houses can only be built on the owned card the player is standing on', () => {
+  const { game, me } = setup()
+  const [a, b] = TILES.filter((t) => t.card).map((t) => t.index)
+  game.state.holdings[a] = { owner: me.id, level: 0, lease: null }
+  game.state.holdings[b] = { owner: me.id, level: 0, lease: null }
+  me.pos = a
+  game.state.phase = 'manage'
+  assert.throws(() => game.act(me.id, { type: 'build', tile: b }), /standing on/)
+  game.act(me.id, { type: 'build', tile: a })
+  assert.equal(game.state.holdings[a].level, 1)
+})
+
 console.log(`\n${passed} rule checks passed`)
 process.exit(0)

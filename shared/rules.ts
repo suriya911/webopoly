@@ -95,7 +95,9 @@ export function buildBlocker(state: GameState, playerId: string, tile: number): 
   if (h.level >= MAX_LEVEL) return 'Already a hotel'
   if (state.criminalTile === tile && state.current === playerId) return 'Criminal card: you cannot build here this turn'
   const player = findPlayer(state, playerId)
-  if (!player || player.cash < buildCost(tile)) return 'Not enough coins'
+  if (!player) return 'Player not found'
+  if (player.pos !== tile) return 'You can only build on the card you are standing on'
+  if (player.cash < buildCost(tile)) return 'Not enough coins'
   return null
 }
 
